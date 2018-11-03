@@ -12,6 +12,7 @@ import binascii
 class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Player.objects.all()
     serializer_class = PlayerSerializer
+    search_fields = ['names__name']
 
 class DamageTypeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = DamageType.objects.all()
@@ -20,6 +21,13 @@ class DamageTypeViewSet(viewsets.ReadOnlyModelViewSet):
 class FragViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Frag.objects.all()
     serializer_class = FragSerializer
+
+    def get_queryset(self):
+        queryset = Frag.objects.all()
+        map_id = self.request.query_params.get('map_id', None)
+        if map_id is not None:
+            queryset = queryset.filter(round__map_id=map_id)
+        return queryset
 
 class RoundViewSet(viewsets.ModelViewSet):
     queryset = Round.objects.all()

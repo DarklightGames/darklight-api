@@ -33,4 +33,4 @@ class RoundSerializer(serializers.HyperlinkedModelSerializer):
 class FragSerializer(serializers.ModelSerializer):
     class Meta:
         model = Frag
-        fields = ['id', 'damage_type', 'distance', 'killer', 'victim']
+        fields = ['id', 'damage_type', 'distance', 'killer', 'victim', 'victim_location', 'killer_location']
