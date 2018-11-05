@@ -58,3 +58,11 @@ class Frag(models.Model):
     @property
     def killer_location(self):
         return (self.killer_location_x, self.killer_location_y, self.killer_location_z)
+
+    @property
+    def is_suicide(self):
+        return self.killer == self.victim
+
+    @property
+    def is_friendly_fire(self):
+        return not self.is_suicide and self.killer_team_index == self.victim_team_index

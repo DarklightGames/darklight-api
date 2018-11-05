@@ -1,4 +1,4 @@
-from .models import Player, DamageType, Round, PlayerName, PlayerIP, Frag
+from .models import Player, DamageType, Round, PlayerName, PlayerIP, Frag, Map
 from rest_framework import serializers
 
 class PlayerNameSerializer(serializers.ModelSerializer):
@@ -34,3 +34,8 @@ class FragSerializer(serializers.ModelSerializer):
     class Meta:
         model = Frag
         fields = ['id', 'damage_type', 'distance', 'killer', 'victim', 'victim_location', 'killer_location']
+
+class MapSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Map
+        fields = ['name']

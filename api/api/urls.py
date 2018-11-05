@@ -16,7 +16,7 @@ Including another URLconf
 from django.conf.urls import url, include
 from django.contrib import admin
 from django.urls import path
-from .api.views import PlayerViewSet, DamageTypeViewSet, RoundViewSet, FragViewSet
+from .api.views import PlayerViewSet, DamageTypeViewSet, RoundViewSet, FragViewSet, MapViewSet
 from rest_framework import routers
 
 router = routers.DefaultRouter()
@@ -24,6 +24,7 @@ router.register(r'players', PlayerViewSet)
 router.register(r'damage-types', DamageTypeViewSet)
 router.register(r'rounds', RoundViewSet)
 router.register(r'frags', FragViewSet)
+router.register(r'maps', MapViewSet)
 
 urlpatterns = [
     url(r'^', include(router.urls)),

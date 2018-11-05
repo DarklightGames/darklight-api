@@ -1,12 +1,16 @@
 from rest_framework import viewsets
 from rest_framework import status
 from django.core.exceptions import ObjectDoesNotExist
+from django.http import JsonResponse
 from rest_framework.response import Response
+from django.db.models import Max
+from rest_framework.decorators import action
 from .models import Player, PlayerName, DamageType, Round, PlayerIP, Frag, Map
-from .serializers import PlayerSerializer, DamageTypeSerializer, RoundSerializer, FragSerializer
+from .serializers import PlayerSerializer, DamageTypeSerializer, RoundSerializer, FragSerializer, MapSerializer
 import numpy as np
 import json
 import binascii
+from .exceptions import MissingParametersException
 
 
 class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
@@ -17,6 +21,7 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
 class DamageTypeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = DamageType.objects.all()
     serializer_class = DamageTypeSerializer
+    search_fields = ['id']
 
 class FragViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Frag.objects.all()
@@ -25,9 +30,37 @@ class FragViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         queryset = Frag.objects.all()
         map_id = self.request.query_params.get('map_id', None)
+        killer_id = self.request.query_params.get('killer_id', None)
         if map_id is not None:
             queryset = queryset.filter(round__map_id=map_id)
+        if killer_id is not None:
+            queryset = queryset.filter(killer__id=killer_id)
         return queryset
+
+    @action(detail=False)
+    # TODO: form validation
+    def range_histogram(self, request):
+        damage_type_ids = request.query_params.getlist('damage_type_ids[]', None)
+        if damage_type_ids is None:
+            raise MissingParametersException(['damage_type_id'])
+        bin_size_in_meters = 10
+        bin_size = bin_size_in_meters * 60.352
+        histogram = []
+        data = {}
+        for damage_type_id in damage_type_ids:
+            for i in range(25):
+                min_distance = int(i * bin_size)
+                max_distance = (i + 1) * bin_size
+                count = Frag.objects.filter(damage_type__id=damage_type_id, distance__gte=min_distance, distance__lt=max_distance).count()
+                histogram.append([i * bin_size_in_meters, count])
+            data[damage_type_id] = histogram
+        return JsonResponse(data)
+
+
+class MapViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Map.objects.order_by('name')
+    serializer_class = MapSerializer
+    search_fields = ['name']
 
 class RoundViewSet(viewsets.ModelViewSet):
     queryset = Round.objects.all()
@@ -35,7 +68,8 @@ class RoundViewSet(viewsets.ModelViewSet):
 
     def create(self, request):
         data = request.data['log'].file.read()
-        data = data.replace(b'\r\n', b'')
+        data = data.replace(b'\r', b'')
+        data = data.replace(b'\n', b'')
         crc = binascii.crc32(data)
         data = json.loads(data.decode('cp1252'))
 
