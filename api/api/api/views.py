@@ -3,8 +3,10 @@ from rest_framework import status
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import JsonResponse
 from rest_framework.response import Response
-from django.db.models import Max
+from rest_framework.views import APIView
+from django.db.models import Max, Count
 from rest_framework.decorators import action
+from rest_framework.pagination import LimitOffsetPagination
 from .models import Player, PlayerName, DamageType, Round, PlayerIP, Frag, Map
 from .serializers import PlayerSerializer, DamageTypeSerializer, RoundSerializer, FragSerializer, MapSerializer
 import numpy as np
@@ -17,6 +19,18 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Player.objects.all()
     serializer_class = PlayerSerializer
     search_fields = ['names__name']
+
+    @action(detail=False)
+    def damage_type_kills(self, request):
+        killer_id = request.query_params.get('killer_id', None)
+        frags = Frag.objects.all()
+        if killer_id is not None:
+            frags = frags.filter(killer_id=killer_id)
+        frags = frags.values('damage_type_id').annotate(kills=Count('damage_type_id')).order_by('-kills')
+        paginator = LimitOffsetPagination()
+        frags = paginator.paginate_queryset(frags, request)
+        data = list(map(lambda x: {'damage_type_id': x['damage_type_id'], 'kills': x['kills']}, frags))
+        return paginator.get_paginated_response(data)
 
 class DamageTypeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = DamageType.objects.all()
@@ -38,22 +52,27 @@ class FragViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset
 
     @action(detail=False)
-    # TODO: form validation
     def range_histogram(self, request):
         damage_type_ids = request.query_params.getlist('damage_type_ids[]', None)
         if damage_type_ids is None:
             raise MissingParametersException(['damage_type_id'])
-        bin_size_in_meters = 10
+        bin_size_in_meters = 5
         bin_size = bin_size_in_meters * 60.352
-        histogram = []
         data = {}
         for damage_type_id in damage_type_ids:
+            bins = []
+            frags = Frag.objects.filter(damage_type__id=damage_type_id)
+            total = 0
             for i in range(25):
                 min_distance = int(i * bin_size)
                 max_distance = (i + 1) * bin_size
-                count = Frag.objects.filter(damage_type__id=damage_type_id, distance__gte=min_distance, distance__lt=max_distance).count()
-                histogram.append([i * bin_size_in_meters, count])
-            data[damage_type_id] = histogram
+                count = frags.filter(damage_type__id=damage_type_id, distance__gte=min_distance, distance__lt=max_distance).count()
+                total += count
+                bins.append([i * bin_size_in_meters, count])
+            data[damage_type_id] = {
+                'total': total,
+                'bins': bins
+            }
         return JsonResponse(data)
 
 
