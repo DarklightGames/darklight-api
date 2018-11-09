@@ -31,8 +31,14 @@ class Round(models.Model):
     crc = models.IntegerField(unique=True)
     version = models.CharField(max_length=16)
     map = models.ForeignKey(Map, on_delete=models.DO_NOTHING)
-    #frags = models.ManyToManyField(Frag)
-    #players = models.ManyToManyField(Player)
+    created_at = models.DateTimeField(auto_now=True)
+    started_at = models.DateTimeField()
+    ended_at = models.DateTimeField()
+    players = models.ManyToManyField(Player)
+
+    @property
+    def duration(self):
+        return
 
 class Frag(models.Model):
     damage_type = models.ForeignKey(DamageType, on_delete=models.DO_NOTHING)

@@ -12,13 +12,15 @@ from .serializers import PlayerSerializer, DamageTypeSerializer, RoundSerializer
 import numpy as np
 import json
 import binascii
+from dateutil import parser
+from datetime import datetime
 from .exceptions import MissingParametersException
 
 
 class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Player.objects.all()
     serializer_class = PlayerSerializer
-    search_fields = ['names__name']
+    search_fields = ['id', 'names__name']
 
     @action(detail=False)
     def damage_type_kills(self, request):
@@ -105,6 +107,8 @@ class RoundViewSet(viewsets.ModelViewSet):
         round.crc = crc
         round.version = data['version']
         round.map = round_map
+        round.started_at = parser.parse(data['round_start'])
+        round.ended_at = parser.parse(data['round_end'])
         round.save()
 
         for x in data['players']:
@@ -118,12 +122,17 @@ class RoundViewSet(viewsets.ModelViewSet):
                     player_name.save()
                     player.save()
                     player.names.add(player_name)
-            if x['ip'] not in map(lambda x: x.ip, player.ips.all()):
-                player_ip = PlayerIP(ip=x['ip'])
+            ip = x['ip'].split(':')[0]
+            if ip not in map(lambda x: x.ip, player.ips.all()):
+                player_ip = PlayerIP(ip=ip)
                 player_ip.save()
                 player.save()
                 player.ips.add(player_ip)
             player.save()
+            round.players.add(player)
+
+        round.save()
+
         for x in data['frags']:
             damage_type = DamageType(id=x['damage_type'])
             damage_type.save()
