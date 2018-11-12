@@ -28,7 +28,7 @@ class DamageTypeSerializer(serializers.HyperlinkedModelSerializer):
 class RoundSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = Round
-        fields = ['id']
+        fields = ['id', 'map_id', 'version', 'started_at', 'ended_at']
 
 class FragSerializer(serializers.ModelSerializer):
     class Meta:

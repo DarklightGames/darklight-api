@@ -4,7 +4,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.http import JsonResponse
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.db.models import Max, Count
+from django.db.models import Max, Count, F
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
 from .models import Player, PlayerName, DamageType, Round, PlayerIP, Frag, Map
@@ -33,6 +33,28 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
         frags = paginator.paginate_queryset(frags, request)
         data = list(map(lambda x: {'damage_type_id': x['damage_type_id'], 'kills': x['kills']}, frags))
         return paginator.get_paginated_response(data)
+
+    @action(detail=True)
+    def summary(self, request, pk):
+        player = Player.objects.get(id=pk)
+        kills = Frag.objects.filter(killer=player).count()
+        deaths = Frag.objects.filter(victim=player).count()
+        kd_ratio = kills / deaths
+        ff_kills = Frag.objects.filter(killer=player, killer_team_index=F('victim_team_index')).count()
+        ff_deaths = Frag.objects.filter(victim=player, killer_team_index=F('victim_team_index')).count()
+        ff_kill_ratio = ff_kills / kills
+        ff_death_ratio = ff_deaths / deaths
+        # self_kills = Frag.objects.filter()
+        return JsonResponse({
+            'kills': kills,
+            'deaths': deaths,
+            'kd_ratio': kd_ratio,
+            'ff_kills': ff_kills,
+            'ff_deaths': ff_deaths,
+            'ff_kill_ratio': ff_kill_ratio,
+            'ff_death_ratio': ff_death_ratio
+        })
+
 
 class DamageTypeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = DamageType.objects.all()
@@ -84,8 +106,45 @@ class MapViewSet(viewsets.ReadOnlyModelViewSet):
     search_fields = ['name']
 
 class RoundViewSet(viewsets.ModelViewSet):
-    queryset = Round.objects.all()
+    queryset = Round.objects.all().order_by('-started_at')
     serializer_class = RoundSerializer
+
+    @action(detail=True)
+    def summary(self, request, pk):
+        round = Round.objects.get(pk=pk)
+        deaths = Frag.objects.filter(round=round).count()
+        axis_deaths = Frag.objects.filter(round=round, victim_team_index=0).count()
+        allied_deaths = Frag.objects.filter(round=round, victim_team_index=1).count()
+        duration = round.ended_at - round.started_at
+        data = {
+            'kills': deaths,
+            'axis_deaths': axis_deaths,
+            'allied_deaths': allied_deaths,
+            'duration': duration
+        }
+        return JsonResponse(data)
+
+    @action(detail=True)
+    def scoreboard(self, request, pk):
+        round = Round.objects.get(pk=pk)
+        paginator = LimitOffsetPagination()
+        player_ids = list(map(lambda x: x.id, round.players.all()))
+        players = Player.objects.filter(id__in=player_ids)
+        players = paginator.paginate_queryset(players, request)
+        data = []
+        for player in players:
+            kills = Frag.objects.filter(round=round, killer=player).count()
+            deaths = Frag.objects.filter(round=round, victim=player).count()
+            tks = Frag.objects.filter(round=round, killer=player, killer_team_index=F('victim_team_index')).count()
+            data.append({
+                'player': {
+                    'id': player.id,
+                },
+                'kills': kills,
+                'deaths': deaths,
+                'tks': tks
+            })
+        return paginator.get_paginated_response(data)
 
     def create(self, request):
         data = request.data['log'].file.read()
