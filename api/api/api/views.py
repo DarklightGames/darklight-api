@@ -39,11 +39,11 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
         player = Player.objects.get(id=pk)
         kills = Frag.objects.filter(killer=player).count()
         deaths = Frag.objects.filter(victim=player).count()
-        kd_ratio = kills / deaths
-        ff_kills = Frag.objects.filter(killer=player, killer_team_index=F('victim_team_index')).count()
-        ff_deaths = Frag.objects.filter(victim=player, killer_team_index=F('victim_team_index')).count()
-        ff_kill_ratio = ff_kills / kills
-        ff_death_ratio = ff_deaths / deaths
+        kd_ratio = kills / deaths if deaths != 0 else 0.0
+        ff_kills = Frag.objects.filter(killer=player, killer_team_index=F('victim_team_index')).exclude(victim=player).count()
+        ff_deaths = Frag.objects.filter(victim=player, killer_team_index=F('victim_team_index')).exclude(killer=player).count()
+        ff_kill_ratio = ff_kills / kills if kills != 0 else 0.0
+        ff_death_ratio = ff_deaths / deaths if deaths != 0 else 0.0
         # self_kills = Frag.objects.filter()
         return JsonResponse({
             'kills': kills,
@@ -105,6 +105,18 @@ class MapViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = MapSerializer
     search_fields = ['name']
 
+    @action(detail=True)
+    def summary(self, request, pk):
+        return JsonResponse({})
+
+    @action(detail=True)
+    def heatmap(self, request, pk):
+        frags = Frag.objects.filter(round__map_id=pk)
+        data = list(map(lambda x: x.victim_location, frags.all()))
+        return JsonResponse({
+            'data': data
+        })
+
 class RoundViewSet(viewsets.ModelViewSet):
     queryset = Round.objects.all().order_by('-started_at')
     serializer_class = RoundSerializer
@@ -139,6 +151,7 @@ class RoundViewSet(viewsets.ModelViewSet):
             data.append({
                 'player': {
                     'id': player.id,
+                    'name': player.names.all()[0].name
                 },
                 'kills': kills,
                 'deaths': deaths,
