@@ -59,11 +59,11 @@ class Frag(models.Model):
 
     @property
     def victim_location(self):
-        return (self.victim_location_x, self.victim_location_y, self.victim_location_z)
+        return (self.victim_location_x, self.victim_location_y)
 
     @property
     def killer_location(self):
-        return (self.killer_location_x, self.killer_location_y, self.killer_location_z)
+        return (self.killer_location_x, self.killer_location_y)
 
     @property
     def is_suicide(self):
