@@ -11,7 +11,7 @@ for file in os.listdir(root):
     is_corrupt = False
     with open(os.path.join(root, file), 'r') as f:
         try:
-            r = requests.post('http://localhost:8000/rounds/', files={'log': f})
+            r = requests.post('http://localhost:8000/logs/', files={'log': f})
             status_code = r.status_code
         except UnicodeDecodeError:
             is_corrupt = True

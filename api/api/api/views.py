@@ -7,8 +7,8 @@ from rest_framework.views import APIView
 from django.db.models import Max, Count, F
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
-from .models import Player, PlayerName, DamageType, Round, PlayerIP, Frag, Map
-from .serializers import PlayerSerializer, DamageTypeSerializer, RoundSerializer, FragSerializer, MapSerializer
+from .models import Player, PlayerName, DamageTypeClass, Round, Frag, Map, RallyPoint, Log, Session, Construction, ConstructionClass
+from .serializers import PlayerSerializer, DamageTypeClassSerializer, RoundSerializer, FragSerializer, MapSerializer, LogSerializer
 import numpy as np
 import json
 import binascii
@@ -44,6 +44,7 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
         ff_deaths = Frag.objects.filter(victim=player, killer_team_index=F('victim_team_index')).exclude(killer=player).count()
         ff_kill_ratio = ff_kills / kills if kills != 0 else 0.0
         ff_death_ratio = ff_deaths / deaths if deaths != 0 else 0.0
+        # last_round_at = Round.objects.filter(players__contains=player).order_by('started_at')
         # self_kills = Frag.objects.filter()
         return JsonResponse({
             'kills': kills,
@@ -52,13 +53,14 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
             'ff_kills': ff_kills,
             'ff_deaths': ff_deaths,
             'ff_kill_ratio': ff_kill_ratio,
-            'ff_death_ratio': ff_death_ratio
+            'ff_death_ratio': ff_death_ratio,
+            # 'last_round_at': last_round_at
         })
 
 
 class DamageTypeViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = DamageType.objects.all()
-    serializer_class = DamageTypeSerializer
+    queryset = DamageTypeClass.objects.all()
+    serializer_class = DamageTypeClassSerializer
     search_fields = ['id']
 
 class FragViewSet(viewsets.ReadOnlyModelViewSet):
@@ -117,6 +119,131 @@ class MapViewSet(viewsets.ReadOnlyModelViewSet):
             'data': data
         })
 
+class LogViewSet(viewsets.ModelViewSet):
+    queryset = Log.objects.all()
+    serializer_class = LogSerializer
+
+    def create(self, request, *args, **kwargs):
+        data = request.data['log'].file.read()
+        data = data.replace(b'\r', b'')
+        data = data.replace(b'\n', b'')
+        crc = binascii.crc32(data)
+        data = json.loads(data.decode('cp1251'))
+
+        try:
+            Log.objects.get(crc=crc)
+            return Response(None, status=status.HTTP_409_CONFLICT, headers={})
+        except ObjectDoesNotExist:
+            pass
+
+        log = Log()
+        log.crc = crc
+        log.version = data['version']
+
+        map_data = data['map']
+        log.map = Map(map_data['name'])
+        log.map.bounds_ne_x = map_data['bounds']['ne'][0]
+        log.map.bounds_ne_y = map_data['bounds']['ne'][1]
+        log.map.bounds_sw_x = map_data['bounds']['sw'][0]
+        log.map.bounds_sw_y = map_data['bounds']['sw'][1]
+        log.map.offset = map_data['offset']
+        log.map.save()
+
+        log.save()
+
+        for player_data in data['players']:
+            try:
+                player = Player.objects.get(id=player_data['id'])
+            except ObjectDoesNotExist:
+                player = Player(id=player_data['id'])
+                player.save()
+            for session_data in player_data['sessions']:
+                session = Session()
+                session.ip = session_data['ip']
+                session.started_at = session_data['started_at']
+                session.ended_at = session_data['ended_at']
+                session.save()
+                player.sessions.add(session)
+            for name in player_data['names']:
+                if name not in map(lambda x: x.name, player.names.all()):
+                    player_name = PlayerName(name=name)
+                    player_name.save()
+                    player.save()
+                    player.names.add(player_name)
+            player.save()
+            log.players.add(player)
+
+        for round_data in data['rounds']:
+            round = Round()
+            round.map = log.map
+            round.started_at = parser.parse(round_data['started_at'])
+            round.ended_at = None if round_data['ended_at'] is None else parser.parse(round_data['ended_at'])
+            round.winner = round_data['winner']
+            round.log = log
+            round.save()
+
+            for frag_data in round_data['frags']:
+                damage_type = DamageTypeClass(id=frag_data['damage_type'])
+                damage_type.save()
+
+                frag = Frag()
+                frag.damage_type = damage_type
+                frag.hit_index = frag_data['hit_index']
+                frag.time = frag_data['time']
+                frag.killer = Player.objects.get(id=frag_data['killer']['id'])
+                frag.killer_team_index = frag_data['killer']['team']
+                frag.killer_location_x = frag_data['killer']['location'][0]
+                frag.killer_location_y = frag_data['killer']['location'][1]
+                frag.killer_location_z = frag_data['killer']['location'][2]
+                frag.victim = Player.objects.get(id=frag_data['victim']['id'])
+                frag.victim_team_index = frag_data['victim']['team']
+                frag.victim_location_x = frag_data['victim']['location'][0]
+                frag.victim_location_y = frag_data['victim']['location'][1]
+                frag.victim_location_z = frag_data['victim']['location'][2]
+                frag.distance = np.linalg.norm(np.subtract(frag.victim_location, frag.killer_location))
+                frag.round = round
+                frag.save()
+
+            for rally_point_data in round_data['rally_points']:
+                rally_point = RallyPoint()
+                rally_point.team_index = rally_point_data['team_index']
+                rally_point.squad_index = rally_point_data['squad_index']
+                rally_point.player = Player.objects.get(id=rally_point_data['player_id'])
+                rally_point.is_established = rally_point_data['is_established']
+                rally_point.establisher_count = rally_point_data['establisher_count']
+                rally_point.location_x = rally_point_data['location'][0]
+                rally_point.location_y = rally_point_data['location'][1]
+                rally_point.location_z = rally_point_data['location'][2]
+                rally_point.created_at = parser.parse(rally_point_data['created_at'])
+                rally_point.destroyed_at = None if rally_point_data['destroyed_at'] is None else parser.parse(rally_point_data['destroyed_at'])
+                rally_point.destroyed_reason = rally_point_data['destroyed_reason']
+                rally_point.spawn_count = rally_point_data['spawn_count']
+                rally_point.round = round
+                rally_point.save()
+
+            for construction_data in round_data['constructions']:
+                construction = Construction()
+                try:
+                    construction_class = ConstructionClass.objects.get(classname=construction_data['class'])
+                except ObjectDoesNotExist:
+                    construction_class = ConstructionClass(classname=construction_data['class'])
+                    construction_class.save()
+
+                construction.classname = construction_class
+                construction.player = Player.objects.get(id=construction_data['player_id'])
+                construction.team_index = construction_data['team']
+                construction.round_time = construction_data['round_time']
+                construction.location_x = construction_data['location'][0]
+                construction.location_y = construction_data['location'][1]
+                construction.location_z = construction_data['location'][2]
+                construction.round = round
+                construction.save()
+
+        log.save()
+
+        return Response({}, status=status.HTTP_201_CREATED, headers={})
+
+
 class RoundViewSet(viewsets.ModelViewSet):
     queryset = Round.objects.all().order_by('-started_at')
     serializer_class = RoundSerializer
@@ -159,72 +286,3 @@ class RoundViewSet(viewsets.ModelViewSet):
             })
         return paginator.get_paginated_response(data)
 
-    def create(self, request):
-        data = request.data['log'].file.read()
-        data = data.replace(b'\r', b'')
-        data = data.replace(b'\n', b'')
-        crc = binascii.crc32(data)
-        data = json.loads(data.decode('cp1252'))
-
-        try:
-            Round.objects.get(crc=crc)
-            return Response(None, status=status.HTTP_409_CONFLICT, headers={})
-        except ObjectDoesNotExist:
-            pass
-
-        round_map = Map(name=data['map'])
-        round_map.save()
-
-        round = Round()
-        round.crc = crc
-        round.version = data['version']
-        round.map = round_map
-        round.started_at = parser.parse(data['round_start'])
-        round.ended_at = parser.parse(data['round_end'])
-        round.save()
-
-        for x in data['players']:
-            try:
-                player = Player.objects.get(id=x['id'])
-            except ObjectDoesNotExist:
-                player = Player(id=x['id'])
-            for name in x['names']:
-                if name not in map(lambda x: x.name, player.names.all()):
-                    player_name = PlayerName(name=name)
-                    player_name.save()
-                    player.save()
-                    player.names.add(player_name)
-            ip = x['ip'].split(':')[0]
-            if ip not in map(lambda x: x.ip, player.ips.all()):
-                player_ip = PlayerIP(ip=ip)
-                player_ip.save()
-                player.save()
-                player.ips.add(player_ip)
-            player.save()
-            round.players.add(player)
-
-        round.save()
-
-        for x in data['frags']:
-            damage_type = DamageType(id=x['damage_type'])
-            damage_type.save()
-
-            frag = Frag()
-            frag.damage_type = damage_type
-            frag.hit_index = x['hit_index']
-            frag.time = x['time']
-            frag.killer = Player.objects.get(id=x['killer']['id'])
-            frag.killer_team_index = x['killer']['team']
-            frag.killer_location_x = x['killer']['location'][0]
-            frag.killer_location_y = x['killer']['location'][1]
-            frag.killer_location_z = x['killer']['location'][2]
-            frag.victim = Player.objects.get(id=x['victim']['id'])
-            frag.victim_team_index = x['victim']['team']
-            frag.victim_location_x = x['victim']['location'][0]
-            frag.victim_location_y = x['victim']['location'][1]
-            frag.victim_location_z = x['victim']['location'][2]
-            frag.distance = np.linalg.norm(np.subtract(frag.victim_location, frag.killer_location))
-            frag.round = round
-            frag.save()
-
-        return Response({}, status=status.HTTP_201_CREATED, headers={})

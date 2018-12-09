@@ -1,4 +1,4 @@
-from .models import Player, DamageType, Round, PlayerName, PlayerIP, Frag, Map
+from .models import Player, DamageTypeClass, Round, PlayerName, Frag, Map, Log, Session
 from rest_framework import serializers
 
 class PlayerNameSerializer(serializers.ModelSerializer):
@@ -6,23 +6,22 @@ class PlayerNameSerializer(serializers.ModelSerializer):
         model = PlayerName
         fields = ['name', 'date']
 
-class PlayerIPSerializer(serializers.ModelSerializer):
+class SessionSerializer(serializers.ModelSerializer):
     class Meta:
-        model = PlayerIP
-        fields = ['ip', 'date']
+        model = Session
+        fields = ['ip', 'started_at', 'ended_at']
 
 class PlayerSerializer(serializers.HyperlinkedModelSerializer):
     id = serializers.CharField()
     names = PlayerNameSerializer(read_only=True, many=True)
-    ips = PlayerIPSerializer(read_only=True, many=True)
 
     class Meta:
         model = Player
-        fields = ['id', 'names', 'ips']
+        fields = ['id', 'names']
 
-class DamageTypeSerializer(serializers.HyperlinkedModelSerializer):
+class DamageTypeClassSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
-        model = DamageType
+        model = DamageTypeClass
         fields = ['id']
 
 class RoundSerializer(serializers.HyperlinkedModelSerializer):
@@ -39,3 +38,8 @@ class MapSerializer(serializers.ModelSerializer):
     class Meta:
         model = Map
         fields = ['name']
+
+class LogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Log
+        fields = ['id']
