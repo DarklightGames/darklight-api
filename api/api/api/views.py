@@ -15,6 +15,7 @@ import binascii
 from dateutil import parser
 from datetime import datetime
 from .exceptions import MissingParametersException
+import semver
 
 
 class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
@@ -57,6 +58,17 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
             # 'last_round_at': last_round_at
         })
 
+    @action(detail=True)
+    def sessions(self, request, pk):
+        player = Player.objects.get(id=pk)
+        dates = set()
+        for session in player.sessions.all():
+            dates.add(str(session.started_at.date()))
+        dates = sorted(list(dates))
+        return JsonResponse({
+            'results': dates
+        })
+
 
 class DamageTypeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = DamageTypeClass.objects.all()
@@ -71,8 +83,8 @@ class FragViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = Frag.objects.all()
         map_id = self.request.query_params.get('map_id', None)
         killer_id = self.request.query_params.get('killer_id', None)
-        if map_id is not None:
-            queryset = queryset.filter(round__map_id=map_id)
+        # if map_id is not None:
+            # queryset = queryset.filter(round__map_id=map_id)
         if killer_id is not None:
             queryset = queryset.filter(killer__id=killer_id)
         return queryset
@@ -109,11 +121,23 @@ class MapViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True)
     def summary(self, request, pk):
-        return JsonResponse({})
+        rounds = Round.objects.filter(log__map_id=pk)
+        round_count = rounds.count()
+        axis_wins = rounds.filter(winner=0).count()
+        allied_wins = rounds.filter(winner=1).count()
+        axis_deaths = Frag.objects.filter(round__log__map_id=pk, victim_team_index=0).count()
+        allied_deaths = Frag.objects.filter(round__log__map_id=pk, victim_team_index=1).count()
+        return JsonResponse({
+            'round_count': round_count,
+            'axis_wins': axis_wins,
+            'allied_wins': allied_wins,
+            'axis_deaths': axis_deaths,
+            'allied_deaths': allied_deaths
+        })
 
     @action(detail=True)
     def heatmap(self, request, pk):
-        frags = Frag.objects.filter(round__map_id=pk)
+        frags = Frag.objects.filter(round__log__map_id=pk)
         data = list(map(lambda x: x.victim_location, frags.all()))
         return JsonResponse({
             'data': data
@@ -135,6 +159,9 @@ class LogViewSet(viewsets.ModelViewSet):
             return Response(None, status=status.HTTP_409_CONFLICT, headers={})
         except ObjectDoesNotExist:
             pass
+
+        if semver.compare(data['version'][1:], '8.3.0') < 0:
+            raise Exception('Log file is for unsupported version ({})'.format(data['version']))
 
         log = Log()
         log.crc = crc
@@ -267,7 +294,7 @@ class RoundViewSet(viewsets.ModelViewSet):
     def scoreboard(self, request, pk):
         round = Round.objects.get(pk=pk)
         paginator = LimitOffsetPagination()
-        player_ids = list(map(lambda x: x.id, round.players.all()))
+        player_ids = list(map(lambda x: x.id, round.log.players.all()))
         players = Player.objects.filter(id__in=player_ids)
         players = paginator.paginate_queryset(players, request)
         data = []

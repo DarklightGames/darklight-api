@@ -32,6 +32,19 @@ class Map(models.Model):
     bounds_sw_y = models.FloatField(null=True)
     offset = models.IntegerField(default=0)
 
+    @property
+    def bounds(self):
+        return [
+            [
+               self.bounds_ne_x,
+               self.bounds_ne_y
+            ],
+            [
+                self.bounds_sw_x,
+                self.bounds_sw_y
+            ]
+        ]
+
 
 class Log(models.Model):
     crc = models.IntegerField(unique=True)
@@ -50,6 +63,14 @@ class Round(models.Model):
     @property
     def duration(self):
         return
+
+    @property
+    def version(self):
+        return self.log.version
+
+    @property
+    def map(self):
+        return self.log.map.name
 
 
 class PawnClass(models.Model):
