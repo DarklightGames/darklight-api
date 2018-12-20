@@ -2,3 +2,4 @@ Django==2.1.2
 djangorestframework==3.9.0
 pytz==2018.7
 semver==2.8.1
+django-heroku==0.3.1
