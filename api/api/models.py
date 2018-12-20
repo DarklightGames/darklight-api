@@ -47,7 +47,7 @@ class Map(models.Model):
 
 
 class Log(models.Model):
-    crc = models.IntegerField(unique=True)
+    crc = models.BigIntegerField(unique=True)
     version = models.CharField(max_length=16)
     map = models.ForeignKey(Map, on_delete=models.DO_NOTHING)
     created_at = models.DateTimeField(auto_now=True)
