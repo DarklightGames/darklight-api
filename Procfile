@@ -1,2 +1,2 @@
 release: ./release-tasks.sh
-web: gunicorn myproject.wsgi
+web: gunicorn app.wsgi
