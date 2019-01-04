@@ -204,7 +204,6 @@ class LogViewSet(viewsets.ModelViewSet):
 
         for round_data in data['rounds']:
             round = Round()
-            round.map = log.map
             round.started_at = parser.parse(round_data['started_at'])
             round.ended_at = None if round_data['ended_at'] is None else parser.parse(round_data['ended_at'])
             round.winner = round_data['winner']
