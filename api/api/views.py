@@ -2,6 +2,7 @@ from rest_framework import viewsets
 from rest_framework import status
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import JsonResponse
+from django.db import transaction
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.db.models import Max, Count, F
@@ -147,6 +148,7 @@ class LogViewSet(viewsets.ModelViewSet):
     queryset = Log.objects.all()
     serializer_class = LogSerializer
 
+    @transaction.atomic
     def create(self, request, *args, **kwargs):
         data = request.data['log'].file.read()
         data = data.replace(b'\r', b'')
