@@ -27,7 +27,7 @@ class DamageTypeClassSerializer(serializers.ModelSerializer):
 class RoundSerializer(serializers.ModelSerializer):
     class Meta:
         model = Round
-        fields = ['id', 'winner', 'started_at', 'ended_at', 'version', 'map']
+        fields = ['id', 'winner', 'started_at', 'ended_at', 'version', 'map', 'num_players', 'is_interesting', 'num_kills']
 
 class FragSerializer(serializers.ModelSerializer):
     class Meta:
@@ -42,4 +42,4 @@ class MapSerializer(serializers.ModelSerializer):
 class LogSerializer(serializers.ModelSerializer):
     class Meta:
         model = Log
-        fields = ['id']
+        fields = ['id', 'crc', 'version']

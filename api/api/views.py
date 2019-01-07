@@ -1,10 +1,11 @@
 from rest_framework import viewsets
 from rest_framework import status
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.http import JsonResponse
 from django.db import transaction
 from rest_framework.response import Response
 from rest_framework.views import APIView
+import django_filters.rest_framework
 from django.db.models import Max, Count, F
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
@@ -13,6 +14,7 @@ from .serializers import PlayerSerializer, DamageTypeClassSerializer, RoundSeria
 import numpy as np
 import json
 import binascii
+import os
 from dateutil import parser
 from datetime import datetime
 from .exceptions import MissingParametersException
@@ -56,6 +58,7 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
             'ff_deaths': ff_deaths,
             'ff_kill_ratio': ff_kill_ratio,
             'ff_death_ratio': ff_death_ratio,
+            'total_playtime': player.total_playtime
             # 'last_round_at': last_round_at
         })
 
@@ -150,6 +153,9 @@ class LogViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
+        secret = request.data['secret']
+        if secret != os.environ['API_SECRET']:
+            raise PermissionDenied('Invalid secret.')
         data = request.data['log'].file.read()
         data = data.replace(b'\r', b'')
         data = data.replace(b'\n', b'')
@@ -269,12 +275,33 @@ class LogViewSet(viewsets.ModelViewSet):
 
         log.save()
 
+        # TODO: store the log on disk, gzip'd probably
+        log_path = os.path.join('storage', 'logs', str(crc) + '.log')
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        json.dump(data, open(log_path, 'w'))
+
         return Response({}, status=status.HTTP_201_CREATED, headers={})
 
 
+class RoundFilterSet(django_filters.rest_framework.FilterSet):
+    map = django_filters.rest_framework.CharFilter(method='filter_map')
+
+    class Meta:
+        model = Round
+        fields = ('map',)
+
+    def filter_map(self, queryset, name, value):
+        if value:
+            queryset = queryset.annotate(mapf=F('log__map__name')).filter(mapf=value)
+        return queryset
+
+
 class RoundViewSet(viewsets.ModelViewSet):
+    model=Round
     queryset = Round.objects.all().order_by('-started_at')
     serializer_class = RoundSerializer
+    filter_backends = (django_filters.rest_framework.DjangoFilterBackend,)
+    filterset_class = RoundFilterSet
 
     @action(detail=True)
     def summary(self, request, pk):
@@ -282,17 +309,16 @@ class RoundViewSet(viewsets.ModelViewSet):
         deaths = Frag.objects.filter(round=round).count()
         axis_deaths = Frag.objects.filter(round=round, victim_team_index=0).count()
         allied_deaths = Frag.objects.filter(round=round, victim_team_index=1).count()
-        duration = round.ended_at - round.started_at
         data = {
             'kills': deaths,
             'axis_deaths': axis_deaths,
-            'allied_deaths': allied_deaths,
-            'duration': duration
+            'allied_deaths': allied_deaths
         }
         return JsonResponse(data)
 
     @action(detail=True)
     def scoreboard(self, request, pk):
+        # add sorting
         round = Round.objects.get(pk=pk)
         paginator = LimitOffsetPagination()
         player_ids = list(map(lambda x: x.id, round.log.players.all()))
@@ -310,6 +336,7 @@ class RoundViewSet(viewsets.ModelViewSet):
                 },
                 'kills': kills,
                 'deaths': deaths,
+                'kd': kills / deaths if deaths > 0 else None,
                 'tks': tks
             })
         return paginator.get_paginated_response(data)

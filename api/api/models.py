@@ -1,4 +1,6 @@
 from django.db import models
+import datetime
+import isodate
 
 
 class PlayerName(models.Model):
@@ -13,11 +15,19 @@ class Session(models.Model):
     started_at = models.DateTimeField(null=False)
     ended_at = models.DateTimeField(null=False)
 
+    @property
+    def duration(self):
+        return (self.ended_at - self.started_at)
+
 
 class Player(models.Model):
     id = models.CharField(max_length=17, primary_key=True)
     names = models.ManyToManyField(PlayerName)
     sessions = models.ManyToManyField(Session)
+
+    @property
+    def total_playtime(self):
+        return isodate.duration_isoformat(sum(map(lambda x: x.duration, self.sessions.all()), datetime.timedelta()))
 
 
 class DamageTypeClass(models.Model):
@@ -71,6 +81,18 @@ class Round(models.Model):
     @property
     def map(self):
         return self.log.map.name
+
+    @property
+    def num_players(self):
+        return self.log.players.count()
+
+    @property
+    def num_kills(self):
+        return Frag.objects.filter(round=self).count()
+
+    @property
+    def is_interesting(self):
+        return self.num_players > 1 and self.num_kills > 0
 
 
 class PawnClass(models.Model):
@@ -161,3 +183,14 @@ class RallyPoint(models.Model):
     @property
     def location(self):
         return (self.location_x, self.location_y)
+
+class Objective(models.Model):
+    map = models.ForeignKey(Map, on_delete=models.CASCADE)
+
+
+class Capture(models.Model):
+    round = models.ForeignKey(Round, on_delete=models.CASCADE)
+    objective = models.ForeignKey(Objective, on_delete=models.CASCADE)
+    round_time = models.IntegerField()
+    team_index = models.IntegerField()
+    players = models.ManyToManyField(Player)
