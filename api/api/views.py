@@ -6,7 +6,7 @@ from django.db import transaction
 from rest_framework.response import Response
 from rest_framework.views import APIView
 import django_filters.rest_framework
-from django.db.models import Max, Count, F
+from django.db.models import Max, Count, F, Q
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
 from .models import Player, PlayerName, DamageTypeClass, Round, Frag, Map, RallyPoint, Log, Session, Construction, ConstructionClass
@@ -64,11 +64,15 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True)
     def sessions(self, request, pk):
+        # TODO: different types of sessions (per day)
         player = Player.objects.get(id=pk)
-        dates = set()
+        dates = dict()
         for session in player.sessions.all():
-            dates.add(str(session.started_at.date()))
-        dates = sorted(list(dates))
+            date = str(session.started_at.date())
+            if date not in dates:
+                dates[date] = session.duration
+            else:
+                dates[date] += session.duration
         return JsonResponse({
             'results': dates
         })
@@ -146,6 +150,7 @@ class MapViewSet(viewsets.ReadOnlyModelViewSet):
         return JsonResponse({
             'data': data
         })
+
 
 class LogViewSet(viewsets.ModelViewSet):
     queryset = Log.objects.all()
@@ -296,7 +301,7 @@ class RoundFilterSet(django_filters.rest_framework.FilterSet):
         return queryset
 
 
-class RoundViewSet(viewsets.ModelViewSet):
+class RoundViewSet(viewsets.ReadOnlyModelViewSet):
     model=Round
     queryset = Round.objects.all().order_by('-started_at')
     serializer_class = RoundSerializer
@@ -341,3 +346,22 @@ class RoundViewSet(viewsets.ModelViewSet):
             })
         return paginator.get_paginated_response(data)
 
+
+def damage_type_friendly_fire(request):
+    damage_types = DamageTypeClass.objects.all()
+    results = []
+    for damage_type in damage_types:
+        frags = Frag.objects.filter(damage_type=damage_type)
+        kills = frags.count()
+        suicides = frags.filter(killer=F('victim')).count()
+        team_kills = frags.filter(~Q(killer=F('victim'))).filter(killer_team_index=F('victim_team_index')).count()
+        results.append({
+            'id': damage_type.id,
+            'kills': kills,
+            'team_kills': team_kills,
+            'suicides': suicides,
+            'team_kill_ratio': team_kills / kills
+        })
+    return JsonResponse({
+        'results': results
+    })

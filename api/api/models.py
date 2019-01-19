@@ -184,6 +184,7 @@ class RallyPoint(models.Model):
     def location(self):
         return (self.location_x, self.location_y)
 
+
 class Objective(models.Model):
     map = models.ForeignKey(Map, on_delete=models.CASCADE)
 
@@ -193,4 +194,14 @@ class Capture(models.Model):
     objective = models.ForeignKey(Objective, on_delete=models.CASCADE)
     round_time = models.IntegerField()
     team_index = models.IntegerField()
-    players = models.ManyToManyField(Player)
+
+
+class Patron(models.Model):
+    TIER_CHOICES = (
+        ('lead', 'Lead'),
+        ('bronze', 'Bronze'),
+        ('silver', 'Silver'),
+        ('gold', 'Gold')
+    )
+    player = models.ForeignKey(Player, on_delete=models.DO_NOTHING)
+    destroyed_reason = models.CharField(max_length=32, choices=TIER_CHOICES)
