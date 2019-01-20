@@ -346,6 +346,20 @@ class RoundViewSet(viewsets.ReadOnlyModelViewSet):
             })
         return paginator.get_paginated_response(data)
 
+    @action(detail=True)
+    def player_summary(self, request, pk):
+        round = Round.objects.get(pk=pk)
+        player_id = request.GET['player_id']
+        player = Player.objects.get(pk=player_id)
+        frags = Frag.objects.filter(round=round, killer=player)
+        kills = list(frags.values('damage_type').annotate(total=Count('damage_type')).order_by('total').annotate(longest=Max('distance')))
+        return JsonResponse({
+            'kills': kills
+        })
+        # longest range kill
+        # aggregate kills by damage type
+        # summary of frags for the player
+
 
 def damage_type_friendly_fire(request):
     damage_types = DamageTypeClass.objects.all()
