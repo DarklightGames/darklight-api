@@ -29,6 +29,14 @@ class Player(models.Model):
     def total_playtime(self):
         return isodate.duration_isoformat(sum(map(lambda x: x.duration, self.sessions.all()), datetime.timedelta()))
 
+    @property
+    def total_kills(self):
+        return Frag.objects.filter(killer=self).count()
+
+    @property
+    def total_deaths(self):
+        return Frag.objects.filter(victim=self).count()
+
 
 class DamageTypeClass(models.Model):
     id = models.CharField(primary_key=True, max_length=128)
@@ -205,3 +213,9 @@ class Patron(models.Model):
     )
     player = models.ForeignKey(Player, on_delete=models.DO_NOTHING)
     destroyed_reason = models.CharField(max_length=32, choices=TIER_CHOICES)
+
+
+class Event(models.Model):
+    type = models.CharField(max_length=32)
+    data = models.TextField()
+    round = models.ForeignKey(Round, on_delete=models.CASCADE)

@@ -9,8 +9,8 @@ import django_filters.rest_framework
 from django.db.models import Max, Count, F, Q
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
-from .models import Player, PlayerName, DamageTypeClass, Round, Frag, Map, RallyPoint, Log, Session, Construction, ConstructionClass
-from .serializers import PlayerSerializer, DamageTypeClassSerializer, RoundSerializer, FragSerializer, MapSerializer, LogSerializer
+from .models import Player, PlayerName, DamageTypeClass, Round, Frag, Map, RallyPoint, Log, Session, Construction, ConstructionClass, Event
+from .serializers import PlayerSerializer, DamageTypeClassSerializer, RoundSerializer, FragSerializer, MapSerializer, LogSerializer, EventSerializer
 import numpy as np
 import json
 import binascii
@@ -120,6 +120,11 @@ class FragViewSet(viewsets.ReadOnlyModelViewSet):
                 'bins': bins
             }
         return JsonResponse(data)
+
+
+class EventViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Event.objects.all()
+    serializer_class = EventSerializer
 
 
 class MapViewSet(viewsets.ReadOnlyModelViewSet):
@@ -278,6 +283,15 @@ class LogViewSet(viewsets.ModelViewSet):
                 construction.round = round
                 construction.save()
 
+            events = round_data['events']
+
+            for event_data in events:
+                event = Event()
+                event.type = event_data['type']
+                event.data = json.dumps(event_data['data'])
+                event.round = round
+                event.save()
+
         log.save()
 
         # TODO: store the log on disk, gzip'd probably
@@ -379,3 +393,16 @@ def damage_type_friendly_fire(request):
     return JsonResponse({
         'results': results
     })
+
+def easter(request):
+    player_counts = dict()
+    for event in Event.objects.filter(type='egg_found'):
+        data = json.loads(event.data)
+        player_id = data['player_id']
+        if player_id not in player_counts:
+            player_counts[player_id] = 0
+        player_counts[player_id] += 1
+    player_counts = [x for x in player_counts.items()]
+    player_counts = sorted(player_counts, key=lambda x: x[1])
+    player_counts = {k:v for k,v in player_counts}
+    return JsonResponse(player_counts)

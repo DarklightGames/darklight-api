@@ -26,9 +26,12 @@ router.register(r'rounds', views.RoundViewSet)
 router.register(r'frags', views.FragViewSet)
 router.register(r'maps', views.MapViewSet)
 router.register(r'logs', views.LogViewSet)
+router.register(r'events', views.EventViewSet)
 
 urlpatterns = [
     url(r'^', include(router.urls)),
     path('reports/damage_type_friendly_fire/', views.damage_type_friendly_fire),
+    # path('reports/top10/', views.top10),
+    path('reports/easter/', views.easter),
     path('admin/', admin.site.urls),
 ]

@@ -1,4 +1,4 @@
-from .models import Player, DamageTypeClass, Round, PlayerName, Frag, Map, Log, Session
+from .models import Player, DamageTypeClass, Round, PlayerName, Frag, Map, Log, Session, Event
 from rest_framework import serializers
 
 class PlayerNameSerializer(serializers.ModelSerializer):
@@ -43,3 +43,27 @@ class LogSerializer(serializers.ModelSerializer):
     class Meta:
         model = Log
         fields = ['id', 'crc', 'version']
+
+import json
+
+class JSONSerializerField(serializers.Field):
+    """Serializer for JSONField -- required to make field writable"""
+
+    def to_representation(self, value):
+        json_data = {}
+        try:
+            json_data = json.loads(value)
+        except ValueError as e:
+            raise e
+        finally:
+            return json_data
+
+    def to_internal_value(self, data):
+        return json.dumps(data)
+
+class EventSerializer(serializers.ModelSerializer):
+    data = JSONSerializerField()
+
+    class Meta:
+        model = Event
+        fields = ['type', 'data']
