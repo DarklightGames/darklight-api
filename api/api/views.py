@@ -283,14 +283,15 @@ class LogViewSet(viewsets.ModelViewSet):
                 construction.round = round
                 construction.save()
 
-            events = round_data['events']
+            if 'events' in round_data:
+                events = round_data['events']
 
-            for event_data in events:
-                event = Event()
-                event.type = event_data['type']
-                event.data = json.dumps(event_data['data'])
-                event.round = round
-                event.save()
+                for event_data in events:
+                    event = Event()
+                    event.type = event_data['type']
+                    event.data = json.dumps(event_data['data'])
+                    event.round = round
+                    event.save()
 
         log.save()
 
