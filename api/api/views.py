@@ -13,6 +13,7 @@ from .models import Player, PlayerName, DamageTypeClass, Round, Frag, Map, Rally
 from .serializers import PlayerSerializer, DamageTypeClassSerializer, RoundSerializer, FragSerializer, MapSerializer, LogSerializer, EventSerializer
 import numpy as np
 import json
+from json.decoder import JSONDecodeError
 import binascii
 import os
 from dateutil import parser
@@ -170,7 +171,16 @@ class LogViewSet(viewsets.ModelViewSet):
         data = data.replace(b'\r', b'')
         data = data.replace(b'\n', b'')
         crc = binascii.crc32(data)
-        data = json.loads(data.decode('cp1251'))
+        data = data.decode('cp1251')
+
+        try:
+            data = json.loads(data)
+        except JSONDecodeError:
+            # Versions <=v9.0.9 had a bug where backslashes and double-quotes were not being properly escaped
+            # and therefore couldn't be parsed properly. If we run into a decoding error, attempt to escape the
+            # backslashes and load it up again.
+            data = data.replace('\\', '\\\\')
+            data = json.loads(data)
 
         try:
             Log.objects.get(crc=crc)
