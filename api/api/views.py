@@ -20,8 +20,6 @@ from dateutil import parser
 from datetime import datetime
 from .exceptions import MissingParametersException
 import semver
-from memoize import memoize
-import pytz
 
 
 class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
@@ -44,8 +42,8 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True)
     def summary(self, request, pk):
         player = Player.objects.get(id=pk)
-        kills = player.total_kills
-        deaths = player.total_deaths
+        kills = Frag.objects.filter(killer=player).count()
+        deaths = Frag.objects.filter(victim=player).count()
         kd_ratio = kills / deaths if deaths != 0 else 0.0
         ff_kills = Frag.objects.filter(killer=player, killer_team_index=F('victim_team_index')).exclude(victim=player).count()
         ff_deaths = Frag.objects.filter(victim=player, killer_team_index=F('victim_team_index')).exclude(killer=player).count()
@@ -80,15 +78,6 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
             'results': dates
         })
 
-    @action(detail=True)
-    def rounds(self, request, pk):
-        player = Player.objects.get(id=pk)
-        rounds = Round.objects.filter(log__players__in=[player])
-        data = [RoundSerializer(x).data for x in rounds.values()]
-        return JsonResponse({
-            'data': data
-        })
-
 
 class DamageTypeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = DamageTypeClass.objects.all()
@@ -109,24 +98,6 @@ class FragViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(killer__id=killer_id)
         return queryset
 
-    @staticmethod
-    @memoize(timeout=86400)
-    def get_damage_type_range_histogram(damage_type_id, bin_size, bin_size_in_meters):
-        bins = []
-        frags = Frag.objects.filter(damage_type__id=damage_type_id)
-        total = 0
-        for i in range(25):
-            min_distance = int(i * bin_size)
-            max_distance = (i + 1) * bin_size
-            count = frags.filter(damage_type__id=damage_type_id, distance__gte=min_distance,
-                                 distance__lt=max_distance).count()
-            total += count
-            bins.append([i * bin_size_in_meters, count])
-        return {
-            'total': total,
-            'bins': bins
-        }
-
     @action(detail=False)
     def range_histogram(self, request):
         damage_type_ids = request.query_params.getlist('damage_type_ids[]', None)
@@ -136,7 +107,19 @@ class FragViewSet(viewsets.ReadOnlyModelViewSet):
         bin_size = bin_size_in_meters * 60.352
         data = {}
         for damage_type_id in damage_type_ids:
-            data[damage_type_id] = FragViewSet.get_damage_type_range_histogram(damage_type_id, bin_size, bin_size_in_meters)
+            bins = []
+            frags = Frag.objects.filter(damage_type__id=damage_type_id)
+            total = 0
+            for i in range(25):
+                min_distance = int(i * bin_size)
+                max_distance = (i + 1) * bin_size
+                count = frags.filter(damage_type__id=damage_type_id, distance__gte=min_distance, distance__lt=max_distance).count()
+                total += count
+                bins.append([i * bin_size_in_meters, count])
+            data[damage_type_id] = {
+                'total': total,
+                'bins': bins
+            }
         return JsonResponse(data)
 
 
@@ -167,7 +150,6 @@ class MapViewSet(viewsets.ReadOnlyModelViewSet):
         })
 
     @action(detail=True)
-    @memoize(timeout=86400)
     def heatmap(self, request, pk):
         frags = Frag.objects.filter(round__log__map_id=pk)
         data = list(map(lambda x: x.victim_location, frags.all()))
@@ -193,7 +175,7 @@ class LogViewSet(viewsets.ModelViewSet):
 
         try:
             data = json.loads(data)
-        except JSONDecodeError as e:
+        except JSONDecodeError:
             # Versions <=v9.0.9 had a bug where backslashes and double-quotes were not being properly escaped
             # and therefore couldn't be parsed properly. If we run into a decoding error, attempt to escape the
             # backslashes and load it up again.
@@ -212,8 +194,6 @@ class LogViewSet(viewsets.ModelViewSet):
         log = Log()
         log.crc = crc
         log.version = data['version']
-
-        print(log.version)
 
         map_data = data['map']
         log.map = Map(map_data['name'])
@@ -236,15 +216,7 @@ class LogViewSet(viewsets.ModelViewSet):
                 session = Session()
                 session.ip = session_data['ip']
                 session.started_at = session_data['started_at']
-                if semver.compare(data['version'][1:], '9.0.9') <= 0:
-                    if session_data['ended_at'] == '':
-                        # There was a bug with <=v9.0.9 where player timeouts would not terminate sessions, resulting in
-                        # ended_at being an empty string. This fix effectively terminates the session immediately.
-                        session.ended_at = session_data['started_at']
-                    else:
-                        session.ended_at = session_data['ended_at']
-                else:
-                    session.ended_at = session_data['ended_at']
+                session.ended_at = session_data['ended_at']
                 session.save()
                 player.sessions.add(session)
             for name in player_data['names']:
@@ -397,7 +369,7 @@ class RoundViewSet(viewsets.ReadOnlyModelViewSet):
                 'kd': kills / deaths if deaths > 0 else None,
                 'tks': tks
             })
-        return paginator.get_paginated_response(data)   # TODO: massively inefficient!
+        return paginator.get_paginated_response(data)
 
     @action(detail=True)
     def player_summary(self, request, pk):
@@ -413,28 +385,7 @@ class RoundViewSet(viewsets.ReadOnlyModelViewSet):
         # aggregate kills by damage type
         # summary of frags for the player
 
-    @action(detail=True)
-    def longest_frags(self, request, pk):
-        round = Round.objects.get(pk=pk)
-        frags = Frag.objects.filter(round=round).order_by('distance')[:5]
-        print(frags)
-        return JsonResponse({
-            frags: list(frags)
-        })
 
-def top10(request):
-    # TODO: get all players with their first session starting 7 days ago
-    players = Player.objects.all()
-    now = datetime.now()
-    new_players = []
-    for player in players:
-        first_session = player.sessions.first()
-        c = now - first_session.started_at.replace(tzinfo=None)
-        if c.days < 7:
-            new_players.append(player)
-    return JsonResponse({})
-
-@memoize(timeout=86400)
 def damage_type_friendly_fire(request):
     damage_types = DamageTypeClass.objects.all()
     results = []
