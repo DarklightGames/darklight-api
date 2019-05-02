@@ -171,7 +171,22 @@ class LogViewSet(viewsets.ModelViewSet):
         data = data.replace(b'\r', b'')
         data = data.replace(b'\n', b'')
         crc = binascii.crc32(data)
-        data = data.decode('cp1251')
+
+        # The game mangles names with special characters which can cause decoding errors.
+        # To mitigate this, let's just replace un-mappable characters with spaces as we
+        # encounter them and hope for the best.
+        attempts = 0
+        while True:
+            try:
+                data = data.decode('cp1251')
+            except UnicodeDecodeError as e:
+                attempts += 1
+                if attempts >= 100:
+                    raise RuntimeError('Failed to resolve string decoding errors via brute force, giving up!')
+                data = bytearray(data)
+                data[e.start:e.end] = b' '
+                continue
+            break
 
         try:
             data = json.loads(data)
