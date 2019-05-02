@@ -216,7 +216,15 @@ class LogViewSet(viewsets.ModelViewSet):
                 session = Session()
                 session.ip = session_data['ip']
                 session.started_at = session_data['started_at']
-                session.ended_at = session_data['ended_at']
+                if semver.compare(data['version'][1:], '9.0.9') <= 0:
+                    if session_data['ended_at'] == '':
+                        # There was a bug with <=v9.0.9 where player timeouts would not terminate sessions, resulting in
+                        # ended_at being an empty string. This fix effectively terminates the session immediately.
+                        session.ended_at = session_data['started_at']
+                    else:
+                        session.ended_at = session_data['ended_at']
+                else:
+                    session.ended_at = session_data['ended_at']
                 session.save()
                 player.sessions.add(session)
             for name in player_data['names']:
