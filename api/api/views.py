@@ -204,7 +204,8 @@ class LogViewSet(viewsets.ModelViewSet):
             pass
 
         if semver.compare(data['version'][1:], '8.3.0') < 0:
-            raise Exception('Log file is for unsupported version ({})'.format(data['version']))
+            data = {'success': False, 'error': 'Log file version {} is unsupported.'.format(data['version'][1:])}
+            return JsonResponse(data, status=status.HTTP_406_NOT_ACCEPTABLE)
 
         log = Log()
         log.crc = crc
