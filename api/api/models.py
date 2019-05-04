@@ -26,6 +26,10 @@ class Player(models.Model):
     sessions = models.ManyToManyField(Session)
 
     @property
+    def name(self):
+        return self.names.all()[0].name
+
+    @property
     def total_playtime(self):
         return isodate.duration_isoformat(sum(map(lambda x: x.duration, self.sessions.all()), datetime.timedelta()))
 
@@ -70,6 +74,7 @@ class Log(models.Model):
     map = models.ForeignKey(Map, on_delete=models.DO_NOTHING)
     created_at = models.DateTimeField(auto_now=True)
     players = models.ManyToManyField(Player)
+
 
 
 class Round(models.Model):

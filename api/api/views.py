@@ -4,12 +4,14 @@ from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.http import JsonResponse
 from django.db import transaction
 from rest_framework.response import Response
+from rest_framework import serializers
 from rest_framework.views import APIView
 import django_filters.rest_framework
+from django.core.exceptions import FieldError
 from django.db.models import Max, Count, F, Q
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
-from .models import Player, PlayerName, DamageTypeClass, Round, Frag, Map, RallyPoint, Log, Session, Construction, ConstructionClass, Event
+from .models import Player, PlayerName, DamageTypeClass, Round, Frag, Map, RallyPoint, Log, Session, Construction, ConstructionClass, Event, PawnClass
 from .serializers import PlayerSerializer, DamageTypeClassSerializer, RoundSerializer, FragSerializer, MapSerializer, LogSerializer, EventSerializer
 import numpy as np
 import json
@@ -80,7 +82,7 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class DamageTypeViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = DamageTypeClass.objects.all()
+    queryset = DamageTypeClass.objects.all().order_by('id')
     serializer_class = DamageTypeClassSerializer
     search_fields = ['id']
 
@@ -273,11 +275,13 @@ class LogViewSet(viewsets.ModelViewSet):
                 frag.killer_location_x = frag_data['killer']['location'][0]
                 frag.killer_location_y = frag_data['killer']['location'][1]
                 frag.killer_location_z = frag_data['killer']['location'][2]
+                frag.killer_pawn_class = PawnClass.objects.get_or_create(classname=frag_data['killer']['pawn'])[0]
                 frag.victim = Player.objects.get(id=frag_data['victim']['id'])
                 frag.victim_team_index = frag_data['victim']['team']
                 frag.victim_location_x = frag_data['victim']['location'][0]
                 frag.victim_location_y = frag_data['victim']['location'][1]
                 frag.victim_location_z = frag_data['victim']['location'][2]
+                frag.victim_pawn_class = PawnClass.objects.get_or_create(classname=frag_data['victim']['pawn'])[0]
                 frag.distance = np.linalg.norm(np.subtract(frag.victim_location, frag.killer_location))
                 frag.round = round
                 frag.save()
@@ -408,6 +412,63 @@ class RoundViewSet(viewsets.ReadOnlyModelViewSet):
         # longest range kill
         # aggregate kills by damage type
         # summary of frags for the player
+
+    @action(detail=True)
+    def frags(self, request, pk):
+        round = Round.objects.get(pk=pk)
+        frags = Frag.objects.filter(round=round)
+        paginator = LimitOffsetPagination()
+        order_by = self.request.query_params.get('order_by', None)
+        if order_by is not None:
+            try:
+                frags = frags.order_by(order_by)
+            except FieldError:
+                pass
+        damage_type_id = self.request.query_params.get('damage_type_id', None)
+        if damage_type_id is not None:
+            frags = frags.filter(damage_type__id=damage_type_id)
+        killer_id = self.request.query_params.get('killer', None)
+        if killer_id is not None:
+            frags = frags.filter(killer__id=killer_id)
+        victim_id = self.request.query_params.get('victim', None)
+        if victim_id is not None:
+            frags = frags.filter(victim__id=victim_id)
+        frags = paginator.paginate_queryset(frags, request)
+        data = list(map(lambda x: {
+            'damage_type_id': x.damage_type.id,
+            'victim': {
+                'id': x.victim.id,
+                'name': x.victim.names.all()[0].name,
+                'pawn': x.victim_pawn_class.classname if x.victim_pawn_class else None,
+                'team': x.victim_team_index
+            },
+            'killer': {
+                'id': x.killer.id,
+                'name': x.killer.names.all()[0].name,
+                'pawn': x.killer_pawn_class.classname if x.killer_pawn_class else None,
+                'team': x.killer_team_index
+            },
+            'distance': x.distance,
+            'time': x.time
+        }, frags))
+        return paginator.get_paginated_response(data)
+
+    @action(detail=True)
+    def players(self, request, pk):
+        round = Round.objects.get(pk=pk)
+        search = self.request.query_params.get('search', None)
+        print(search)
+        data = []
+        for player in round.log.players.all():
+            if search is None or search.lower() in player.name.lower():
+                data.append({
+                    'id': player.id,
+                    'names': list(map(lambda x: {'name': x.name}, player.names.all()))
+                })
+        return JsonResponse({
+            'results': data
+        })
+
 
 
 def damage_type_friendly_fire(request):
