@@ -25,6 +25,9 @@ class Player(models.Model):
     names = models.ManyToManyField(PlayerName)
     sessions = models.ManyToManyField(Session)
 
+    def __str__(self):
+        return '{} ({})'.format(self.id, self.name)
+
     @property
     def name(self):
         return self.names.all()[0].name
@@ -216,8 +219,11 @@ class Patron(models.Model):
         ('silver', 'Silver'),
         ('gold', 'Gold')
     )
-    player = models.ForeignKey(Player, on_delete=models.DO_NOTHING)
-    destroyed_reason = models.CharField(max_length=32, choices=TIER_CHOICES)
+    player = models.ForeignKey(Player, on_delete=models.DO_NOTHING, unique=True)
+    tier = models.CharField(max_length=32, choices=TIER_CHOICES)
+
+    def __str__(self):
+        return str(self.player)
 
 
 class Event(models.Model):

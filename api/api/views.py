@@ -11,8 +11,8 @@ from django.core.exceptions import FieldError
 from django.db.models import Max, Count, F, Q
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
-from .models import Player, PlayerName, DamageTypeClass, Round, Frag, Map, RallyPoint, Log, Session, Construction, ConstructionClass, Event, PawnClass
-from .serializers import PlayerSerializer, DamageTypeClassSerializer, RoundSerializer, FragSerializer, MapSerializer, LogSerializer, EventSerializer
+from .models import Player, PlayerName, DamageTypeClass, Round, Frag, Map, RallyPoint, Log, Session, Construction, ConstructionClass, Event, PawnClass, Patron
+from .serializers import PlayerSerializer, DamageTypeClassSerializer, RoundSerializer, FragSerializer, MapSerializer, LogSerializer, EventSerializer, PatronSerializer
 import numpy as np
 import json
 from json.decoder import JSONDecodeError
@@ -310,7 +310,6 @@ class LogViewSet(viewsets.ModelViewSet):
                 except ObjectDoesNotExist:
                     construction_class = ConstructionClass(classname=construction_data['class'])
                     construction_class.save()
-
                 construction.classname = construction_class
                 construction.player = Player.objects.get(id=construction_data['player_id'])
                 construction.team_index = construction_data['team']
@@ -352,6 +351,12 @@ class RoundFilterSet(django_filters.rest_framework.FilterSet):
         if value:
             queryset = queryset.annotate(mapf=F('log__map__name')).filter(mapf=value)
         return queryset
+
+
+class PatronViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Patron.objects.all()
+    serializer_class = PatronSerializer
+    search_fields = ['player__id']
 
 
 class RoundViewSet(viewsets.ReadOnlyModelViewSet):

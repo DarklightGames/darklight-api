@@ -1,4 +1,4 @@
-from .models import Player, DamageTypeClass, Round, PlayerName, Frag, Map, Log, Session, Event
+from .models import Player, DamageTypeClass, Round, PlayerName, Frag, Map, Log, Session, Event, Patron
 from rest_framework import serializers
 
 class PlayerNameSerializer(serializers.ModelSerializer):
@@ -24,10 +24,17 @@ class DamageTypeClassSerializer(serializers.ModelSerializer):
         model = DamageTypeClass
         fields = ['id']
 
+class LogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Log
+        fields = ['id', 'crc', 'version', 'created_at']
+
 class RoundSerializer(serializers.ModelSerializer):
+    log = LogSerializer(read_only=True)
+
     class Meta:
         model = Round
-        fields = ['id', 'winner', 'started_at', 'ended_at', 'version', 'map', 'num_players', 'is_interesting', 'num_kills']
+        fields = ['id', 'winner', 'started_at', 'ended_at', 'version', 'map', 'num_players', 'is_interesting', 'num_kills', 'log']
 
 class FragSerializer(serializers.ModelSerializer):
     class Meta:
@@ -38,11 +45,6 @@ class MapSerializer(serializers.ModelSerializer):
     class Meta:
         model = Map
         fields = ['name', 'bounds', 'offset']
-
-class LogSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Log
-        fields = ['id', 'crc', 'version']
 
 import json
 
@@ -67,3 +69,9 @@ class EventSerializer(serializers.ModelSerializer):
     class Meta:
         model = Event
         fields = ['type', 'data']
+
+class PatronSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Patron
+        exclude = []

@@ -27,6 +27,7 @@ router.register(r'frags', views.FragViewSet)
 router.register(r'maps', views.MapViewSet)
 router.register(r'logs', views.LogViewSet)
 router.register(r'events', views.EventViewSet)
+router.register(r'patrons', views.PatronViewSet)
 
 urlpatterns = [
     url(r'^', include(router.urls)),
