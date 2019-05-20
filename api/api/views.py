@@ -366,7 +366,7 @@ class AnnouncementViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False)
     def latest(self, request):
         queryset = Announcement.objects.filter(is_published=True).order_by('-created_at')
-        if queryset.count() == 1:
+        if queryset.count() == 0:
             return Response(status=204)
         announcement = queryset.first()
         data = AnnouncementSerializer(instance=announcement).data
