@@ -1,4 +1,4 @@
-from .models import Player, DamageTypeClass, Round, PlayerName, Frag, Map, Log, Session, Event, Patron
+from .models import Player, DamageTypeClass, Round, PlayerName, Frag, Map, Log, Session, Event, Patron, Announcement
 from rest_framework import serializers
 
 class PlayerNameSerializer(serializers.ModelSerializer):
@@ -74,4 +74,10 @@ class PatronSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Patron
+        exclude = []
+
+class AnnouncementSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Announcement
         exclude = []

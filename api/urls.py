@@ -28,6 +28,7 @@ router.register(r'maps', views.MapViewSet)
 router.register(r'logs', views.LogViewSet)
 router.register(r'events', views.EventViewSet)
 router.register(r'patrons', views.PatronViewSet)
+router.register(r'announcements', views.AnnouncementViewSet)
 
 urlpatterns = [
     url(r'^', include(router.urls)),

@@ -11,8 +11,8 @@ from django.core.exceptions import FieldError
 from django.db.models import Max, Count, F, Q
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
-from .models import Player, PlayerName, DamageTypeClass, Round, Frag, Map, RallyPoint, Log, Session, Construction, ConstructionClass, Event, PawnClass, Patron
-from .serializers import PlayerSerializer, DamageTypeClassSerializer, RoundSerializer, FragSerializer, MapSerializer, LogSerializer, EventSerializer, PatronSerializer
+from .models import Player, PlayerName, DamageTypeClass, Round, Frag, Map, RallyPoint, Log, Session, Construction, ConstructionClass, Event, PawnClass, Patron, Announcement
+from .serializers import PlayerSerializer, DamageTypeClassSerializer, RoundSerializer, FragSerializer, MapSerializer, LogSerializer, EventSerializer, PatronSerializer, AnnouncementSerializer
 import numpy as np
 import json
 from json.decoder import JSONDecodeError
@@ -357,6 +357,20 @@ class PatronViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Patron.objects.all()
     serializer_class = PatronSerializer
     search_fields = ['player__id']
+
+
+class AnnouncementViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Announcement.objects.all()
+    serializer_class = AnnouncementSerializer
+
+    @action(detail=False)
+    def latest(self, request):
+        queryset = Announcement.objects.filter(is_published=True).order_by('-created_at')
+        if queryset.count() == 1:
+            return Response(status=204)
+        announcement = queryset.first()
+        data = AnnouncementSerializer(instance=announcement).data
+        return JsonResponse(data)
 
 
 class RoundViewSet(viewsets.ReadOnlyModelViewSet):

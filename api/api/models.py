@@ -219,7 +219,7 @@ class Patron(models.Model):
         ('silver', 'Silver'),
         ('gold', 'Gold')
     )
-    player = models.ForeignKey(Player, on_delete=models.DO_NOTHING, unique=True)
+    player = models.OneToOneField(Player, on_delete=models.DO_NOTHING)
     tier = models.CharField(max_length=32, choices=TIER_CHOICES)
 
     def __str__(self):
@@ -230,3 +230,13 @@ class Event(models.Model):
     type = models.CharField(max_length=32)
     data = models.TextField()
     round = models.ForeignKey(Round, on_delete=models.CASCADE)
+
+class Announcement(models.Model):
+    created_at = models.DateTimeField()
+    title = models.CharField(max_length=64)
+    url = models.URLField()
+    content = models.TextField()
+    is_published = models.BooleanField(default=False)
+
+    def __str__(self):
+        return self.title
