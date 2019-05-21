@@ -80,6 +80,24 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
             'results': dates
         })
 
+    @action(detail=False)
+    def most_kills(self, request):
+        data = Frag.objects.values('killer').annotate(count=Count('id')).order_by('-count')
+        paginator = LimitOffsetPagination()
+        data = paginator.paginate_queryset(data, request)
+        results = []
+        for datum in data:
+            player = Player.objects.get(pk=datum['killer'])
+            result = {
+                'count': datum['count'],
+                'player': {
+                    'id': player.id,
+                    'name': player.name
+                }
+            }
+            results.append(result)
+        return paginator.get_paginated_response(results)
+
 
 class DamageTypeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = DamageTypeClass.objects.all().order_by('id')
@@ -487,7 +505,6 @@ class RoundViewSet(viewsets.ReadOnlyModelViewSet):
         return JsonResponse({
             'results': data
         })
-
 
 
 def damage_type_friendly_fire(request):
