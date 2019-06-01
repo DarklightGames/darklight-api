@@ -11,8 +11,8 @@ from django.core.exceptions import FieldError
 from django.db.models import Max, Count, F, Q
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
-from .models import Player, PlayerName, DamageTypeClass, Round, Frag, Map, RallyPoint, Log, Session, Construction, ConstructionClass, Event, PawnClass, Patron, Announcement
-from .serializers import PlayerSerializer, DamageTypeClassSerializer, RoundSerializer, FragSerializer, MapSerializer, LogSerializer, EventSerializer, PatronSerializer, AnnouncementSerializer
+from .models import Player, PlayerName, DamageTypeClass, Round, Frag, Map, RallyPoint, Log, Session, Construction, ConstructionClass, Event, PawnClass, Patron, Announcement, TextMessage
+from .serializers import PlayerSerializer, DamageTypeClassSerializer, RoundSerializer, FragSerializer, MapSerializer, LogSerializer, EventSerializer, PatronSerializer, AnnouncementSerializer, TextMessageSerializer
 import numpy as np
 import json
 from json.decoder import JSONDecodeError
@@ -104,6 +104,7 @@ class DamageTypeViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = DamageTypeClassSerializer
     search_fields = ['id']
 
+
 class FragViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Frag.objects.all()
     serializer_class = FragSerializer
@@ -178,9 +179,17 @@ class MapViewSet(viewsets.ReadOnlyModelViewSet):
         })
 
 
+class TextMessageViewset(viewsets.ModelViewSet):
+    queryset = TextMessage.objects.all()
+    serializer_class = TextMessageSerializer
+    filter_backends = (django_filters.rest_framework.DjangoFilterBackend,)
+    filterset_fields = ('log_id', 'sender_id')
+
+
 class LogViewSet(viewsets.ModelViewSet):
     queryset = Log.objects.all()
     serializer_class = LogSerializer
+
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
@@ -271,6 +280,17 @@ class LogViewSet(viewsets.ModelViewSet):
                     player.names.add(player_name)
             player.save()
             log.players.add(player)
+
+        for text_message_data in data['text_messages']:
+            text_message = TextMessage()
+            text_message.log = log
+            text_message.type = text_message_data['type']
+            text_message.message = text_message_data['message']
+            text_message.sender = Player(id=text_message_data['sender'])
+            text_message.sent_at = parser.parse(text_message_data['sent_at'])
+            text_message.team_index = text_message_data['team_index']
+            text_message.squad_index = text_message_data['squad_index']
+            text_message.save()
 
         for round_data in data['rounds']:
             round = Round()

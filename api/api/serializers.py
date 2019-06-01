@@ -1,4 +1,4 @@
-from .models import Player, DamageTypeClass, Round, PlayerName, Frag, Map, Log, Session, Event, Patron, Announcement
+from .models import Player, DamageTypeClass, Round, PlayerName, Frag, Map, Log, Session, Event, Patron, Announcement, TextMessage
 from rest_framework import serializers
 
 class PlayerNameSerializer(serializers.ModelSerializer):
@@ -81,3 +81,9 @@ class AnnouncementSerializer(serializers.ModelSerializer):
     class Meta:
         model = Announcement
         exclude = []
+
+class TextMessageSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = TextMessage
+        fields = ['id', 'type', 'message', 'sent_at', 'team_index', 'squad_index', 'sender_id', 'log_id']

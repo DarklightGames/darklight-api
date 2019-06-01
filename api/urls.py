@@ -29,6 +29,7 @@ router.register(r'logs', views.LogViewSet)
 router.register(r'events', views.EventViewSet)
 router.register(r'patrons', views.PatronViewSet)
 router.register(r'announcements', views.AnnouncementViewSet)
+router.register(r'text-messages', views.TextMessageViewset)
 
 urlpatterns = [
     url(r'^', include(router.urls)),

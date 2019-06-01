@@ -231,6 +231,7 @@ class Event(models.Model):
     data = models.TextField()
     round = models.ForeignKey(Round, on_delete=models.CASCADE)
 
+
 class Announcement(models.Model):
     created_at = models.DateTimeField()
     title = models.CharField(max_length=64)
@@ -240,3 +241,13 @@ class Announcement(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class TextMessage(models.Model):
+    log = models.ForeignKey(Log, on_delete=models.CASCADE)
+    sender = models.ForeignKey(Player, on_delete=models.CASCADE)
+    message = models.CharField(max_length=128)
+    type = models.CharField(max_length=16)
+    sent_at = models.DateTimeField()
+    team_index = models.SmallIntegerField()
+    squad_index = models.SmallIntegerField()
