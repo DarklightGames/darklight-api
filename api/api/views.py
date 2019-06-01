@@ -187,7 +187,7 @@ class TextMessageFilterSet(django_filters.rest_framework.FilterSet):
         fields = ('log', 'sender', 'message', 'type')
 
 
-class TextMessageViewset(viewsets.ModelViewSet):
+class TextMessageViewset(viewsets.ReadOnlyModelViewSet):
     queryset = TextMessage.objects.all()
     serializer_class = TextMessageSerializer
     filter_backends = (django_filters.rest_framework.DjangoFilterBackend,)
