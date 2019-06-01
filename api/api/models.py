@@ -30,7 +30,7 @@ class Player(models.Model):
 
     @property
     def name(self):
-        return self.names.all()[0].name
+        return self.names.all()[0].name if len(self.names.all()) > 0 else 'Unknown'
 
     @property
     def total_playtime(self):

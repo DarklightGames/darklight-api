@@ -86,4 +86,4 @@ class TextMessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TextMessage
-        fields = ['id', 'type', 'message', 'sent_at', 'team_index', 'squad_index', 'sender_id', 'log_id']
+        fields = ['id', 'type', 'message', 'sent_at', 'team_index', 'squad_index', 'sender', 'log']

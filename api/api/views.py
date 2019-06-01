@@ -179,11 +179,19 @@ class MapViewSet(viewsets.ReadOnlyModelViewSet):
         })
 
 
+class TextMessageFilterSet(django_filters.rest_framework.FilterSet):
+    message = django_filters.rest_framework.CharFilter(field_name='message', lookup_expr='icontains')
+
+    class Meta:
+        model = TextMessage
+        fields = ('log', 'sender', 'message', 'type')
+
+
 class TextMessageViewset(viewsets.ModelViewSet):
     queryset = TextMessage.objects.all()
     serializer_class = TextMessageSerializer
     filter_backends = (django_filters.rest_framework.DjangoFilterBackend,)
-    filterset_fields = ('log_id', 'sender_id')
+    filterset_class = TextMessageFilterSet
 
 
 class LogViewSet(viewsets.ModelViewSet):
