@@ -5,12 +5,11 @@ from .models import Patron, Player, Announcement, Report
 # Register your models here.
 class PatronAdmin(admin.ModelAdmin):
     raw_id_fields = ('player',)
-    autocomplete_fields = ('player',)
     list_display = ('player', 'tier')
     # get name !!
 
 class PlayerAdmin(admin.ModelAdmin):
-    search_fields = ('id', 'names__name')
+    search_fields = ('id',)
     exclude = ('names', 'sessions')
 
     def has_add_permission(self, request):
@@ -26,7 +25,6 @@ class AnnouncementAdmin(admin.ModelAdmin):
 
 class ReportAdmin(admin.ModelAdmin):
     raw_id_fields = ('offender',)
-    autocomplete_fields = ('offender',)
     list_display = ('author', 'offender', 'text',)
     exclude = ('author',)
 
