@@ -9,7 +9,7 @@ class PatronAdmin(admin.ModelAdmin):
     # get name !!
 
 class PlayerAdmin(admin.ModelAdmin):
-    search_fields = ('id',)
+    search_fields = ('id', 'names__name')
     exclude = ('names', 'sessions')
 
     def has_add_permission(self, request):
