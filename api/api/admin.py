@@ -1,16 +1,19 @@
 from django.contrib import admin
 from django.db import models
-from .models import Patron, Player, Announcement, Report
+from .models import Patron, Player, Announcement, Report, TextMessage
+from django_admin_listfilter_dropdown.filters import DropdownFilter
+from admin_auto_filters.filters import AutocompleteFilter
 
-# Register your models here.
+
 class PatronAdmin(admin.ModelAdmin):
     raw_id_fields = ('player',)
     list_display = ('player', 'tier')
-    # get name !!
+
 
 class PlayerAdmin(admin.ModelAdmin):
     search_fields = ('id', 'names__name')
     exclude = ('names', 'sessions')
+    list_filter = []
 
     def has_add_permission(self, request):
         return False
@@ -18,10 +21,13 @@ class PlayerAdmin(admin.ModelAdmin):
     def has_change_permission(self, request, obj=None):
         return False
 
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 class AnnouncementAdmin(admin.ModelAdmin):
     list_display = ('title', 'created_at', 'is_published')
-    pass
+
 
 class ReportAdmin(admin.ModelAdmin):
     raw_id_fields = ('offender',)
@@ -32,7 +38,33 @@ class ReportAdmin(admin.ModelAdmin):
         obj.author = request.user
         obj.save()
 
+
+class SenderFilter(AutocompleteFilter):
+    title = 'Sender'
+    field_name = 'sender'
+
+
+class TextMessageAdmin(admin.ModelAdmin):
+
+    class Media:
+        pass
+
+    list_display = ('id', 'sender', 'type', 'message', 'sent_at', 'team_index', 'squad_index')
+    list_filter = [SenderFilter, ('type', DropdownFilter), ('sent_at', admin.DateFieldListFilter)]
+    search_fields = ('message',)
+    autocomplete_fields = ('sender',)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 admin.site.register(Patron, PatronAdmin)
 admin.site.register(Player, PlayerAdmin)
 admin.site.register(Report, ReportAdmin)
+admin.site.register(TextMessage, TextMessageAdmin)
 admin.site.register(Announcement, AnnouncementAdmin)
