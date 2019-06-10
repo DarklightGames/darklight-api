@@ -181,10 +181,11 @@ class MapViewSet(viewsets.ReadOnlyModelViewSet):
 
 class TextMessageFilterSet(django_filters.rest_framework.FilterSet):
     message = django_filters.rest_framework.CharFilter(field_name='message', lookup_expr='icontains')
+    map = django_filters.rest_framework.CharFilter(field_name='log__map', lookup_expr='exact')
 
     class Meta:
         model = TextMessage
-        fields = ('log', 'sender', 'message', 'type')
+        fields = ('log', 'sender', 'message', 'type', 'map', 'team_index')
 
 
 class TextMessageViewset(viewsets.ReadOnlyModelViewSet):
@@ -192,6 +193,42 @@ class TextMessageViewset(viewsets.ReadOnlyModelViewSet):
     serializer_class = TextMessageSerializer
     filter_backends = (django_filters.rest_framework.DjangoFilterBackend,)
     filterset_class = TextMessageFilterSet
+
+    @action(detail=False)
+    def words(self, request):
+        # TODO: reverse-lookup
+        word_counts = dict()
+        text_message_filter = TextMessageFilterSet(request.GET, queryset=self.queryset)
+        for text_message in text_message_filter.qs:
+            words = text_message.message.replace('.', ' ').replace(',', ' ').lower().split()
+            # TODO: remove punctuation marks
+            for word in words:
+                if word not in word_counts:
+                    word_counts[word] = 0
+                word_counts[word] += 1
+        # TODO: import this from a file, maybe
+        excludes = ['', 'a', 'an', 'the', 'and', 'but', 'for', 'nor', 'or', 'so', 'yet', 'then', 'i', 'at', 'to', 'is', 'on', 'this', 'are', 'it', 'of', 'can', 'they', 'that', 'where', 'here', 'in', 'be', 'no', 'yes', 'our', 'has', 'it\'s', 'what', 'us', 'im', 'get', 'do', 'dont', 'with', 'have', 'from', 'was', 'by', 'just', 'there', 'your']
+        for exclude in excludes:
+            try:
+                del word_counts[exclude]
+            except KeyError:
+                pass
+        word_counts = [{'text': k, 'value': v} for (k, v) in word_counts.items()]
+        word_counts.sort(key=lambda x: x['value'], reverse=True)
+        return JsonResponse({'data': word_counts[:50]})
+
+    @action(detail=False)
+    def summary(self, request):
+        text_message_filter = TextMessageFilterSet(request.GET, queryset=self.queryset)
+        # TODO: count # of team messages
+        axis_messages = text_message_filter.qs.filter(team_index=0)
+        allies_message = text_message_filter.qs.filter(team_index=1)
+        axis_types = {x['type']: x['count'] for x in axis_messages.values('type').annotate(count=Count('type'))}
+        allies_types = {x['type']: x['count'] for x in allies_message.values('type').annotate(count=Count('type'))}
+        data = {'axis': {'total': axis_messages.count(), 'types': axis_types},
+                'allies': {'total': allies_message.count(), 'types': allies_types}}
+        return JsonResponse(data)
+
 
 
 class LogViewSet(viewsets.ModelViewSet):
