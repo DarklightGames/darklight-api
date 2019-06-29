@@ -1,8 +1,9 @@
 from django.contrib import admin
 from django.db import models
-from .models import Patron, Player, Announcement, Report, TextMessage
+from .models import Patron, Player, Announcement, Report, TextMessage, Event
 from django_admin_listfilter_dropdown.filters import DropdownFilter
 from admin_auto_filters.filters import AutocompleteFilter
+from prettyjson import PrettyJSONWidget
 
 
 class PatronAdmin(admin.ModelAdmin):
@@ -63,8 +64,24 @@ class TextMessageAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
+
+class EventAdmin(admin.ModelAdmin):
+    list_display = ('type', 'data')
+    list_filter = [('type', DropdownFilter)]
+
+    formfield_overrides = {
+        models.TextField: {'widget': PrettyJSONWidget}
+    }
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 admin.site.register(Patron, PatronAdmin)
 admin.site.register(Player, PlayerAdmin)
 admin.site.register(Report, ReportAdmin)
 admin.site.register(TextMessage, TextMessageAdmin)
 admin.site.register(Announcement, AnnouncementAdmin)
+admin.site.register(Event, EventAdmin)
