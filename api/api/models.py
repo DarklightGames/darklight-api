@@ -230,7 +230,7 @@ class Patron(models.Model):
 class Event(models.Model):
     type = models.CharField(max_length=32)
     data = models.TextField()
-    round = models.ForeignKey(Round, on_delete=models.CASCADE)
+    round = models.ForeignKey(Round, on_delete=models.CASCADE, editable=False)
 
 
 class Announcement(models.Model):
