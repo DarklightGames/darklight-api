@@ -4,35 +4,32 @@ from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.http import JsonResponse
 from django.db import transaction
 from rest_framework.response import Response
-from rest_framework import serializers
-from rest_framework.views import APIView
 import django_filters.rest_framework
 from django.core.exceptions import FieldError
 from django.db.models import Max, Count, F, Q
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
-from .models import Player, PlayerName, DamageTypeClass, Round, Frag, Map, RallyPoint, Log, Session, Construction, ConstructionClass, Event, PawnClass, Patron, Announcement, TextMessage
-from .serializers import PlayerSerializer, DamageTypeClassSerializer, RoundSerializer, FragSerializer, MapSerializer, LogSerializer, EventSerializer, PatronSerializer, AnnouncementSerializer, TextMessageSerializer
+from . import models
+from . import serializers
 import numpy as np
 import json
 from json.decoder import JSONDecodeError
 import binascii
 import os
 from dateutil import parser
-from datetime import datetime
 from .exceptions import MissingParametersException
 import semver
 
 
 class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Player.objects.all()
-    serializer_class = PlayerSerializer
+    queryset = models.Player.objects.all()
+    serializer_class = serializers.PlayerSerializer
     search_fields = ['id', 'names__name']
 
     @action(detail=False)
     def damage_type_kills(self, request):
         killer_id = request.query_params.get('killer_id', None)
-        frags = Frag.objects.all()
+        frags = models.Frag.objects.all()
         if killer_id is not None:
             frags = frags.filter(killer_id=killer_id)
         frags = frags.values('damage_type_id').annotate(kills=Count('damage_type_id')).order_by('-kills')
@@ -43,12 +40,12 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True)
     def summary(self, request, pk):
-        player = Player.objects.get(id=pk)
-        kills = Frag.objects.filter(killer=player).count()
-        deaths = Frag.objects.filter(victim=player).count()
+        player = models.Player.objects.get(id=pk)
+        kills = models.Frag.objects.filter(killer=player).count()
+        deaths = models.Frag.objects.filter(victim=player).count()
         kd_ratio = kills / deaths if deaths != 0 else 0.0
-        ff_kills = Frag.objects.filter(killer=player, killer_team_index=F('victim_team_index')).exclude(victim=player).count()
-        ff_deaths = Frag.objects.filter(victim=player, killer_team_index=F('victim_team_index')).exclude(killer=player).count()
+        ff_kills = models.Frag.objects.filter(killer=player, killer_team_index=F('victim_team_index')).exclude(victim=player).count()
+        ff_deaths = models.Frag.objects.filter(victim=player, killer_team_index=F('victim_team_index')).exclude(killer=player).count()
         ff_kill_ratio = ff_kills / kills if kills != 0 else 0.0
         ff_death_ratio = ff_deaths / deaths if deaths != 0 else 0.0
         # last_round_at = Round.objects.filter(players__contains=player).order_by('started_at')
@@ -68,7 +65,7 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True)
     def sessions(self, request, pk):
         # TODO: different types of sessions (per day)
-        player = Player.objects.get(id=pk)
+        player = models.Player.objects.get(id=pk)
         dates = dict()
         for session in player.sessions.all():
             date = str(session.started_at.date())
@@ -82,12 +79,12 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False)
     def most_kills(self, request):
-        data = Frag.objects.values('killer').annotate(count=Count('id')).order_by('-count')
+        data = models.Frag.objects.values('killer').annotate(count=Count('id')).order_by('-count')
         paginator = LimitOffsetPagination()
         data = paginator.paginate_queryset(data, request)
         results = []
         for datum in data:
-            player = Player.objects.get(pk=datum['killer'])
+            player = models.Player.objects.get(pk=datum['killer'])
             result = {
                 'count': datum['count'],
                 'player': {
@@ -100,17 +97,17 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class DamageTypeViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = DamageTypeClass.objects.all().order_by('id')
-    serializer_class = DamageTypeClassSerializer
+    queryset = models.DamageTypeClass.objects.all().order_by('id')
+    serializer_class = serializers.DamageTypeClassSerializer
     search_fields = ['id']
 
 
 class FragViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Frag.objects.all()
-    serializer_class = FragSerializer
+    queryset = models.Frag.objects.all()
+    serializer_class = serializers.FragSerializer
 
     def get_queryset(self):
-        queryset = Frag.objects.all()
+        queryset = models.Frag.objects.all()
         map_id = self.request.query_params.get('map_id', None)
         killer_id = self.request.query_params.get('killer_id', None)
         # if map_id is not None:
@@ -129,7 +126,7 @@ class FragViewSet(viewsets.ReadOnlyModelViewSet):
         data = {}
         for damage_type_id in damage_type_ids:
             bins = []
-            frags = Frag.objects.filter(damage_type__id=damage_type_id)
+            frags = models.Frag.objects.filter(damage_type__id=damage_type_id)
             total = 0
             for i in range(25):
                 min_distance = int(i * bin_size)
@@ -145,23 +142,23 @@ class FragViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class EventViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Event.objects.all()
-    serializer_class = EventSerializer
+    queryset = models.Event.objects.all()
+    serializer_class = serializers.EventSerializer
 
 
 class MapViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Map.objects.order_by('name')
-    serializer_class = MapSerializer
+    queryset = models.Map.objects.order_by('name')
+    serializer_class = serializers.MapSerializer
     search_fields = ['name']
 
     @action(detail=True)
     def summary(self, request, pk):
-        rounds = Round.objects.filter(log__map_id=pk)
+        rounds = models.Round.objects.filter(log__map_id=pk)
         round_count = rounds.count()
         axis_wins = rounds.filter(winner=0).count()
         allied_wins = rounds.filter(winner=1).count()
-        axis_deaths = Frag.objects.filter(round__log__map_id=pk, victim_team_index=0).count()
-        allied_deaths = Frag.objects.filter(round__log__map_id=pk, victim_team_index=1).count()
+        axis_deaths = models.Frag.objects.filter(round__log__map_id=pk, victim_team_index=0).count()
+        allied_deaths = models.Frag.objects.filter(round__log__map_id=pk, victim_team_index=1).count()
         return JsonResponse({
             'round_count': round_count,
             'axis_wins': axis_wins,
@@ -172,7 +169,7 @@ class MapViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True)
     def heatmap(self, request, pk):
-        frags = Frag.objects.filter(round__log__map_id=pk)
+        frags = models.Frag.objects.filter(round__log__map_id=pk)
         data = list(map(lambda x: x.victim_location, frags.all()))
         return JsonResponse({
             'data': data
@@ -184,13 +181,13 @@ class TextMessageFilterSet(django_filters.rest_framework.FilterSet):
     map = django_filters.rest_framework.CharFilter(field_name='log__map', lookup_expr='exact')
 
     class Meta:
-        model = TextMessage
+        model = models.TextMessage
         fields = ('log', 'sender', 'message', 'type', 'map', 'team_index')
 
 
 class TextMessageViewset(viewsets.ReadOnlyModelViewSet):
-    queryset = TextMessage.objects.all()
-    serializer_class = TextMessageSerializer
+    queryset = models.TextMessage.objects.all()
+    serializer_class = serializers.TextMessageSerializer
     filter_backends = (django_filters.rest_framework.DjangoFilterBackend,)
     filterset_class = TextMessageFilterSet
 
@@ -220,7 +217,6 @@ class TextMessageViewset(viewsets.ReadOnlyModelViewSet):
     @action(detail=False)
     def summary(self, request):
         text_message_filter = TextMessageFilterSet(request.GET, queryset=self.queryset)
-        # TODO: count # of team messages
         axis_messages = text_message_filter.qs.filter(team_index=0)
         allies_message = text_message_filter.qs.filter(team_index=1)
         axis_types = {x['type']: x['count'] for x in axis_messages.values('type').annotate(count=Count('type'))}
@@ -232,8 +228,8 @@ class TextMessageViewset(viewsets.ReadOnlyModelViewSet):
 
 
 class LogViewSet(viewsets.ModelViewSet):
-    queryset = Log.objects.all()
-    serializer_class = LogSerializer
+    queryset = models.Log.objects.all()
+    serializer_class = serializers.LogSerializer
 
 
     @transaction.atomic
@@ -272,7 +268,7 @@ class LogViewSet(viewsets.ModelViewSet):
             data = json.loads(data)
 
         try:
-            Log.objects.get(crc=crc)
+            models.Log.objects.get(crc=crc)
             return Response(None, status=status.HTTP_409_CONFLICT, headers={})
         except ObjectDoesNotExist:
             pass
@@ -281,12 +277,12 @@ class LogViewSet(viewsets.ModelViewSet):
             data = {'success': False, 'error': 'Log file version {} is unsupported.'.format(data['version'][1:])}
             return JsonResponse(data, status=status.HTTP_406_NOT_ACCEPTABLE)
 
-        log = Log()
+        log = models.Log()
         log.crc = crc
         log.version = data['version']
 
         map_data = data['map']
-        log.map = Map(map_data['name'])
+        log.map = models.Map(map_data['name'])
         log.map.bounds_ne_x = map_data['bounds']['ne'][0]
         log.map.bounds_ne_y = map_data['bounds']['ne'][1]
         log.map.bounds_sw_x = map_data['bounds']['sw'][0]
@@ -298,12 +294,12 @@ class LogViewSet(viewsets.ModelViewSet):
 
         for player_data in data['players']:
             try:
-                player = Player.objects.get(id=player_data['id'])
+                player = models.Player.objects.get(id=player_data['id'])
             except ObjectDoesNotExist:
-                player = Player(id=player_data['id'])
+                player = models.Player(id=player_data['id'])
                 player.save()
             for session_data in player_data['sessions']:
-                session = Session()
+                session = models.Session()
                 session.ip = session_data['ip']
                 session.started_at = session_data['started_at']
                 if semver.compare(data['version'][1:], '9.0.9') <= 0:
@@ -319,7 +315,7 @@ class LogViewSet(viewsets.ModelViewSet):
                 player.sessions.add(session)
             for name in player_data['names']:
                 if name not in map(lambda x: x.name, player.names.all()):
-                    player_name = PlayerName(name=name)
+                    player_name = models.PlayerName(name=name)
                     player_name.save()
                     player.save()
                     player.names.add(player_name)
@@ -327,18 +323,18 @@ class LogViewSet(viewsets.ModelViewSet):
             log.players.add(player)
 
         for text_message_data in data['text_messages']:
-            text_message = TextMessage()
+            text_message = models.TextMessage()
             text_message.log = log
             text_message.type = text_message_data['type']
             text_message.message = text_message_data['message']
-            text_message.sender = Player(id=text_message_data['sender'])
+            text_message.sender = models.Player(id=text_message_data['sender'])
             text_message.sent_at = parser.parse(text_message_data['sent_at'])
             text_message.team_index = text_message_data['team_index']
             text_message.squad_index = text_message_data['squad_index']
             text_message.save()
 
         for round_data in data['rounds']:
-            round = Round()
+            round = models.Round()
             round.started_at = parser.parse(round_data['started_at'])
             round.ended_at = None if round_data['ended_at'] is None else parser.parse(round_data['ended_at'])
             round.winner = round_data['winner']
@@ -346,34 +342,34 @@ class LogViewSet(viewsets.ModelViewSet):
             round.save()
 
             for frag_data in round_data['frags']:
-                damage_type = DamageTypeClass(id=frag_data['damage_type'])
+                damage_type = models.DamageTypeClass(id=frag_data['damage_type'])
                 damage_type.save()
 
-                frag = Frag()
+                frag = models.Frag()
                 frag.damage_type = damage_type
                 frag.hit_index = frag_data['hit_index']
                 frag.time = frag_data['time']
-                frag.killer = Player.objects.get(id=frag_data['killer']['id'])
+                frag.killer = models.Player.objects.get(id=frag_data['killer']['id'])
                 frag.killer_team_index = frag_data['killer']['team']
                 frag.killer_location_x = frag_data['killer']['location'][0]
                 frag.killer_location_y = frag_data['killer']['location'][1]
                 frag.killer_location_z = frag_data['killer']['location'][2]
-                frag.killer_pawn_class = PawnClass.objects.get_or_create(classname=frag_data['killer']['pawn'])[0]
-                frag.victim = Player.objects.get(id=frag_data['victim']['id'])
+                frag.killer_pawn_class = models.PawnClass.objects.get_or_create(classname=frag_data['killer']['pawn'])[0]
+                frag.victim = models.Player.objects.get(id=frag_data['victim']['id'])
                 frag.victim_team_index = frag_data['victim']['team']
                 frag.victim_location_x = frag_data['victim']['location'][0]
                 frag.victim_location_y = frag_data['victim']['location'][1]
                 frag.victim_location_z = frag_data['victim']['location'][2]
-                frag.victim_pawn_class = PawnClass.objects.get_or_create(classname=frag_data['victim']['pawn'])[0]
+                frag.victim_pawn_class = models.PawnClass.objects.get_or_create(classname=frag_data['victim']['pawn'])[0]
                 frag.distance = np.linalg.norm(np.subtract(frag.victim_location, frag.killer_location))
                 frag.round = round
                 frag.save()
 
             for rally_point_data in round_data['rally_points']:
-                rally_point = RallyPoint()
+                rally_point = models.RallyPoint()
                 rally_point.team_index = rally_point_data['team_index']
                 rally_point.squad_index = rally_point_data['squad_index']
-                rally_point.player = Player.objects.get(id=rally_point_data['player_id'])
+                rally_point.player = models.Player.objects.get(id=rally_point_data['player_id'])
                 rally_point.is_established = rally_point_data['is_established']
                 rally_point.establisher_count = rally_point_data['establisher_count']
                 rally_point.location_x = rally_point_data['location'][0]
@@ -387,14 +383,14 @@ class LogViewSet(viewsets.ModelViewSet):
                 rally_point.save()
 
             for construction_data in round_data['constructions']:
-                construction = Construction()
+                construction = models.Construction()
                 try:
-                    construction_class = ConstructionClass.objects.get(classname=construction_data['class'])
+                    construction_class = models.ConstructionClass.objects.get(classname=construction_data['class'])
                 except ObjectDoesNotExist:
-                    construction_class = ConstructionClass(classname=construction_data['class'])
+                    construction_class = models.ConstructionClass(classname=construction_data['class'])
                     construction_class.save()
                 construction.classname = construction_class
-                construction.player = Player.objects.get(id=construction_data['player_id'])
+                construction.player = models.Player.objects.get(id=construction_data['player_id'])
                 construction.team_index = construction_data['team']
                 construction.round_time = construction_data['round_time']
                 construction.location_x = construction_data['location'][0]
@@ -407,7 +403,7 @@ class LogViewSet(viewsets.ModelViewSet):
                 events = round_data['events']
 
                 for event_data in events:
-                    event = Event()
+                    event = models.Event()
                     event.type = event_data['type']
                     event.data = json.dumps(event_data['data'])
                     event.round = round
@@ -427,7 +423,7 @@ class RoundFilterSet(django_filters.rest_framework.FilterSet):
     map = django_filters.rest_framework.CharFilter(method='filter_map')
 
     class Meta:
-        model = Round
+        model = models.Round
         fields = ('map',)
 
     def filter_map(self, queryset, name, value):
@@ -437,38 +433,38 @@ class RoundFilterSet(django_filters.rest_framework.FilterSet):
 
 
 class PatronViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Patron.objects.all()
-    serializer_class = PatronSerializer
+    queryset = models.Patron.objects.all()
+    serializer_class = serializers.PatronSerializer
     search_fields = ['player__id']
 
 
 class AnnouncementViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Announcement.objects.all()
-    serializer_class = AnnouncementSerializer
+    queryset = models.Announcement.objects.all()
+    serializer_class = serializers.AnnouncementSerializer
 
     @action(detail=False)
     def latest(self, request):
-        queryset = Announcement.objects.filter(is_published=True).order_by('-created_at')
+        queryset = models.Announcement.objects.filter(is_published=True).order_by('-created_at')
         if queryset.count() == 0:
             return Response(status=204)
         announcement = queryset.first()
-        data = AnnouncementSerializer(instance=announcement).data
+        data = serializers.AnnouncementSerializer(instance=announcement).data
         return JsonResponse(data)
 
 
 class RoundViewSet(viewsets.ReadOnlyModelViewSet):
-    model=Round
-    queryset = Round.objects.all().order_by('-started_at')
-    serializer_class = RoundSerializer
+    model = models.Round
+    queryset = models.Round.objects.all().order_by('-started_at')
+    serializer_class = serializers.RoundSerializer
     filter_backends = (django_filters.rest_framework.DjangoFilterBackend,)
     filterset_class = RoundFilterSet
 
     @action(detail=True)
     def summary(self, request, pk):
-        round = Round.objects.get(pk=pk)
-        deaths = Frag.objects.filter(round=round).count()
-        axis_deaths = Frag.objects.filter(round=round, victim_team_index=0).count()
-        allied_deaths = Frag.objects.filter(round=round, victim_team_index=1).count()
+        round = models.Round.objects.get(pk=pk)
+        deaths = models.Frag.objects.filter(round=round).count()
+        axis_deaths = models.Frag.objects.filter(round=round, victim_team_index=0).count()
+        allied_deaths = models.Frag.objects.filter(round=round, victim_team_index=1).count()
         data = {
             'kills': deaths,
             'axis_deaths': axis_deaths,
@@ -479,16 +475,16 @@ class RoundViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True)
     def scoreboard(self, request, pk):
         # add sorting
-        round = Round.objects.get(pk=pk)
+        round = models.Round.objects.get(pk=pk)
         paginator = LimitOffsetPagination()
         player_ids = list(map(lambda x: x.id, round.log.players.all()))
-        players = Player.objects.filter(id__in=player_ids)
+        players = models.Player.objects.filter(id__in=player_ids)
         players = paginator.paginate_queryset(players, request)
         data = []
         for player in players:
-            kills = Frag.objects.filter(round=round, killer=player).count()
-            deaths = Frag.objects.filter(round=round, victim=player).count()
-            tks = Frag.objects.filter(round=round, killer=player, killer_team_index=F('victim_team_index')).count()
+            kills = models.Frag.objects.filter(round=round, killer=player).count()
+            deaths = models.Frag.objects.filter(round=round, victim=player).count()
+            tks = models.Frag.objects.filter(round=round, killer=player, killer_team_index=F('victim_team_index')).count()
             data.append({
                 'player': {
                     'id': player.id,
@@ -503,10 +499,10 @@ class RoundViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True)
     def player_summary(self, request, pk):
-        round = Round.objects.get(pk=pk)
+        round = models.Round.objects.get(pk=pk)
         player_id = request.GET['player_id']
-        player = Player.objects.get(pk=player_id)
-        frags = Frag.objects.filter(round=round, killer=player)
+        player = models.Player.objects.get(pk=player_id)
+        frags = models.Frag.objects.filter(round=round, killer=player)
         kills = list(frags.values('damage_type').annotate(total=Count('damage_type')).order_by('total').annotate(longest=Max('distance')))
         return JsonResponse({
             'kills': kills
@@ -517,8 +513,8 @@ class RoundViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True)
     def frags(self, request, pk):
-        round = Round.objects.get(pk=pk)
-        frags = Frag.objects.filter(round=round)
+        round = models.Round.objects.get(pk=pk)
+        frags = models.Frag.objects.filter(round=round)
         paginator = LimitOffsetPagination()
         order_by = self.request.query_params.get('order_by', None)
         if order_by is not None:
@@ -557,7 +553,7 @@ class RoundViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True)
     def players(self, request, pk):
-        round = Round.objects.get(pk=pk)
+        round = models.Round.objects.get(pk=pk)
         search = self.request.query_params.get('search', None)
         print(search)
         data = []
@@ -572,11 +568,26 @@ class RoundViewSet(viewsets.ReadOnlyModelViewSet):
         })
 
 
+
+class RallyPointFilterSet(django_filters.rest_framework.FilterSet):
+    class Meta:
+        model = models.RallyPoint
+        fields = ('round', 'player')
+
+
+class RallyPointViewSet(viewsets.ReadOnlyModelViewSet):
+    model = models.RallyPoint
+    queryset = models.RallyPoint.objects.all()
+    serializer_class = serializers.RallyPointSerializer
+    filter_backends = (django_filters.rest_framework.DjangoFilterBackend,)
+    filterset_class = RallyPointFilterSet
+
+
 def damage_type_friendly_fire(request):
-    damage_types = DamageTypeClass.objects.all()
+    damage_types = models.DamageTypeClass.objects.all()
     results = []
     for damage_type in damage_types:
-        frags = Frag.objects.filter(damage_type=damage_type)
+        frags = models.Frag.objects.filter(damage_type=damage_type)
         kills = frags.count()
         suicides = frags.filter(killer=F('victim')).count()
         team_kills = frags.filter(~Q(killer=F('victim'))).filter(killer_team_index=F('victim_team_index')).count()
@@ -593,7 +604,7 @@ def damage_type_friendly_fire(request):
 
 def easter(request):
     player_counts = dict()
-    for event in Event.objects.filter(type='egg_found'):
+    for event in models.Event.objects.filter(type='egg_found'):
         data = json.loads(event.data)
         player_id = data['player_id']
         if player_id not in player_counts:

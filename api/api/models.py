@@ -18,7 +18,7 @@ class Session(models.Model):
 
     @property
     def duration(self):
-        return (self.ended_at - self.started_at)
+        return self.ended_at - self.started_at
 
 
 class Player(models.Model):
@@ -78,7 +78,6 @@ class Log(models.Model):
     map = models.ForeignKey(Map, on_delete=models.DO_NOTHING)
     created_at = models.DateTimeField(auto_now=True)
     players = models.ManyToManyField(Player)
-
 
 
 class Round(models.Model):
@@ -201,6 +200,14 @@ class RallyPoint(models.Model):
     def location(self):
         return (self.location_x, self.location_y)
 
+    @property
+    def lifespan(self):
+        lifespan = datetime.timedelta()
+        destroyed_at = self.destroyed_at or self.round.end_time
+        if destroyed_at is not None:
+            lifespan = destroyed_at - self.created_at
+        return isodate.duration_isoformat(lifespan)
+
 
 class Objective(models.Model):
     map = models.ForeignKey(Map, on_delete=models.CASCADE)
@@ -211,6 +218,7 @@ class Capture(models.Model):
     objective = models.ForeignKey(Objective, on_delete=models.CASCADE)
     round_time = models.IntegerField()
     team_index = models.IntegerField()
+    players = models.ManyToManyField(Player)
 
 
 class Patron(models.Model):
