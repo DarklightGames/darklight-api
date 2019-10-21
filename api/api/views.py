@@ -29,13 +29,6 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
     ordering_fields = ['kills', 'deaths', 'ff_kills', 'playtime']
 
     @action(detail=False)
-    def calculate_all_stats(self, request):
-        # TODO: remove this, move to periodic job.
-        for player in models.Player.objects.all():
-            player.calculate_stats()
-        return JsonResponse({'success': True})
-
-    @action(detail=False)
     def damage_type_kills(self, request):
         killer_id = request.query_params.get('killer_id', None)
         frags = models.Frag.objects.all()
