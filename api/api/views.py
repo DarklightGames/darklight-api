@@ -409,7 +409,7 @@ class LogViewSet(viewsets.ModelViewSet):
         log.save()
 
         # Recalculate all aggregate stats for players involved in the game.
-        for player in log.players:
+        for player in log.players.all():
             player.calculate_stats()
 
         # TODO: store the log on disk, gzip'd probably
