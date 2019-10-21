@@ -1,5 +1,5 @@
-from rest_framework import viewsets
-from rest_framework import status
+from rest_framework import viewsets, status
+from rest_framework.filters import OrderingFilter
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.http import JsonResponse
 from django.db import transaction
@@ -25,6 +25,15 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = models.Player.objects.all()
     serializer_class = serializers.PlayerSerializer
     search_fields = ['id', 'names__name']
+    filter_backends = (OrderingFilter,)
+    ordering_fields = ['kills', 'deaths', 'ff_kills', 'playtime']
+
+    @action(detail=False)
+    def calculate_all_stats(self, request):
+        # TODO: remove this, move to periodic job.
+        for player in models.Player.objects.all():
+            player.calculate_stats()
+        return JsonResponse({'success': True})
 
     @action(detail=False)
     def damage_type_kills(self, request):
@@ -39,26 +48,21 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
         return paginator.get_paginated_response(data)
 
     @action(detail=True)
-    def summary(self, request, pk):
+    def stats(self, request, pk):
         player = models.Player.objects.get(id=pk)
-        kills = models.Frag.objects.filter(killer=player).count()
-        deaths = models.Frag.objects.filter(victim=player).count()
-        kd_ratio = kills / deaths if deaths != 0 else 0.0
-        ff_kills = models.Frag.objects.filter(killer=player, killer_team_index=F('victim_team_index')).exclude(victim=player).count()
-        ff_deaths = models.Frag.objects.filter(victim=player, killer_team_index=F('victim_team_index')).exclude(killer=player).count()
-        ff_kill_ratio = ff_kills / kills if kills != 0 else 0.0
-        ff_death_ratio = ff_deaths / deaths if deaths != 0 else 0.0
-        # last_round_at = Round.objects.filter(players__contains=player).order_by('started_at')
-        # self_kills = Frag.objects.filter()
+        player.calculate_stats()
+        kd_ratio = player.kills / player.deaths if player.deaths != 0 else 0.0
+        ff_kill_ratio = player.ff_kills / player.kills if player.kills != 0 else 0.0
+        ff_death_ratio = player.ff_deaths / player.deaths if player.deaths != 0 else 0.0
         return JsonResponse({
-            'kills': kills,
-            'deaths': deaths,
+            'kills': player.kills,
+            'deaths': player.deaths,
             'kd_ratio': kd_ratio,
-            'ff_kills': ff_kills,
-            'ff_deaths': ff_deaths,
+            'ff_kills': player.ff_kills,
+            'ff_deaths': player.ff_deaths,
             'ff_kill_ratio': ff_kill_ratio,
             'ff_death_ratio': ff_death_ratio,
-            'total_playtime': player.total_playtime
+            'playtime': player.playtime
             # 'last_round_at': last_round_at
         })
 
@@ -117,6 +121,7 @@ class FragViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset
 
     @action(detail=False)
+    # TODO: this is massively inefficient, use aggregation/rounding to speed this up!
     def range_histogram(self, request):
         damage_type_ids = request.query_params.getlist('damage_type_ids[]', None)
         if damage_type_ids is None:
@@ -410,6 +415,10 @@ class LogViewSet(viewsets.ModelViewSet):
                     event.save()
 
         log.save()
+
+        # Recalculate all aggregate stats for players involved in the game.
+        for player in log.players:
+            player.calculate_stats()
 
         # TODO: store the log on disk, gzip'd probably
         log_path = os.path.join('storage', 'logs', str(crc) + '.log')

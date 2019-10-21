@@ -1,6 +1,7 @@
 from . import models
 from rest_framework import serializers
 import json
+import isodate
 
 
 class PlayerNameSerializer(serializers.ModelSerializer):
@@ -18,10 +19,16 @@ class SessionSerializer(serializers.ModelSerializer):
 class PlayerSerializer(serializers.ModelSerializer):
     id = serializers.CharField()
     names = PlayerNameSerializer(read_only=True, many=True)
+    kills = serializers.IntegerField()
+    deaths = serializers.IntegerField()
+    playtime = serializers.SerializerMethodField()
+
+    def get_playtime(self, obj):
+        return isodate.duration_isoformat(obj.playtime)
 
     class Meta:
         model = models.Player
-        fields = ['id', 'names']
+        fields = ['id', 'names', 'kills', 'deaths', 'ff_kills', 'ff_deaths', 'playtime']
 
 
 class DamageTypeClassSerializer(serializers.ModelSerializer):

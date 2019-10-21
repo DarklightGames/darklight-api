@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.db.models import F
 import datetime
 import isodate
 
@@ -25,6 +26,11 @@ class Player(models.Model):
     id = models.CharField(max_length=17, primary_key=True)
     names = models.ManyToManyField(PlayerName)
     sessions = models.ManyToManyField(Session)
+    kills = models.PositiveIntegerField(default=0)
+    deaths = models.PositiveIntegerField(default=0)
+    ff_kills = models.PositiveIntegerField(default=0)
+    ff_deaths = models.PositiveIntegerField(default=0)
+    playtime = models.DurationField(default=datetime.timedelta())
 
     def __str__(self):
         return '{} ({})'.format(self.id, self.name)
@@ -33,17 +39,14 @@ class Player(models.Model):
     def name(self):
         return self.names.all()[0].name if len(self.names.all()) > 0 else 'Unknown'
 
-    @property
-    def total_playtime(self):
-        return isodate.duration_isoformat(sum(map(lambda x: x.duration, self.sessions.all()), datetime.timedelta()))
-
-    @property
-    def total_kills(self):
-        return Frag.objects.filter(killer=self).count()
-
-    @property
-    def total_deaths(self):
-        return Frag.objects.filter(victim=self).count()
+    # TODO: move this elsewhere, kinda sloppy having it here
+    def calculate_stats(self):
+        self.kills = Frag.objects.filter(killer=self).count()
+        self.deaths = Frag.objects.filter(victim=self).count()
+        self.ff_kills = Frag.objects.filter(killer=self, killer_team_index=F('victim_team_index')).exclude(victim=self).count()
+        self.ff_deaths = Frag.objects.filter(victim=self, killer_team_index=F('victim_team_index')).exclude(killer=self).count()
+        self.playtime = sum(map(lambda x: x.duration, self.sessions.all()), datetime.timedelta())
+        self.save()
 
 
 class DamageTypeClass(models.Model):
