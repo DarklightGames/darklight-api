@@ -17,7 +17,7 @@ django-filters==0.2.1
 django-heroku==0.3.1
 django-memoize==2.2.0
 django-prettyjson==0.4.1
-djangorestframework==3.9.0
+djangorestframework==3.9.1
 gunicorn==19.9.0
 idna==2.7
 isodate==0.6.0
