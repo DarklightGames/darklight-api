@@ -43,7 +43,6 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True)
     def stats(self, request, pk):
         player = models.Player.objects.get(id=pk)
-        player.calculate_stats()
         kd_ratio = player.kills / player.deaths if player.deaths != 0 else 0.0
         ff_kill_ratio = player.ff_kills / player.kills if player.kills != 0 else 0.0
         ff_death_ratio = player.ff_deaths / player.deaths if player.deaths != 0 else 0.0
