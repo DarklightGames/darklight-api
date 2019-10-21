@@ -1,5 +1,5 @@
 from rest_framework import viewsets, status
-from rest_framework.filters import OrderingFilter
+from rest_framework.filters import OrderingFilter, SearchFilter
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.http import JsonResponse
 from django.db import transaction
@@ -25,7 +25,7 @@ class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = models.Player.objects.all()
     serializer_class = serializers.PlayerSerializer
     search_fields = ['id', 'names__name']
-    filter_backends = (OrderingFilter,)
+    filter_backends = (SearchFilter, OrderingFilter,)
     ordering_fields = ['kills', 'deaths', 'ff_kills', 'playtime']
 
     @action(detail=False)
