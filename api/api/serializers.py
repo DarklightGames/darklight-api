@@ -52,10 +52,57 @@ class RoundSerializer(serializers.ModelSerializer):
 
 
 class FragSerializer(serializers.ModelSerializer):
+
+    killer = serializers.SerializerMethodField()
+    victim = serializers.SerializerMethodField()
+
+    def get_killer(self, obj):
+        return {
+            'id': obj.killer.id,
+            'location': obj.killer_location
+        }
+
+    def get_victim(self, obj):
+        return {
+            'id': obj.victim.id,
+            'location': obj.victim_location
+        }
+
+    # TODO: use proper serializermethodfields
     class Meta:
         model = models.Frag
-        fields = ['id', 'damage_type', 'distance', 'killer', 'victim', 'victim_location', 'killer_location']
+        fields = ['id', 'damage_type', 'distance', 'killer', 'victim']
 
+
+class VehicleFragSerializer(serializers.ModelSerializer):
+
+    killer = serializers.SerializerMethodField()
+    vehicle = serializers.SerializerMethodField()
+
+    def get_killer(self, obj):
+        return {
+            'id': obj.killer.id,
+            'team': obj.killer_team_index,
+            'pawn': obj.killer_pawn_class.classname if obj.killer_pawn_class else None,
+            'vehicle': obj.killer_vehicle_class.classname if obj.killer_vehicle_class else None,
+            'location': [
+                int(obj.killer_location_x),
+                int(obj.killer_location_y)
+            ]
+        }
+
+    def get_vehicle(self, obj):
+        return {
+            'class': obj.vehicle_class.classname if obj.vehicle_class else None,
+            'location': [
+                int(obj.vehicle_location_x),
+                int(obj.vehicle_location_y)
+            ]
+        }
+
+    class Meta:
+        model = models.VehicleFrag
+        fields = ['id', 'damage_type', 'time', 'killer', 'vehicle', 'distance']
 
 class MapSerializer(serializers.ModelSerializer):
     class Meta:

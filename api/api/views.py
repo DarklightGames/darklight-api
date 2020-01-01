@@ -138,6 +138,11 @@ class FragViewSet(viewsets.ReadOnlyModelViewSet):
         return JsonResponse(data)
 
 
+class VehicleFragViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = models.VehicleFrag.objects.all()
+    serializer_class = serializers.VehicleFragSerializer
+
+
 class EventViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = models.Event.objects.all()
     serializer_class = serializers.EventSerializer
@@ -339,11 +344,8 @@ class LogViewSet(viewsets.ModelViewSet):
             round.save()
 
             for frag_data in round_data['frags']:
-                damage_type = models.DamageTypeClass(id=frag_data['damage_type'])
-                damage_type.save()
-
                 frag = models.Frag()
-                frag.damage_type = damage_type
+                frag.damage_type = models.DamageTypeClass.objects.get_or_create(id=frag_data['damage_type'])[0]
                 frag.hit_index = frag_data['hit_index']
                 frag.time = frag_data['time']
                 frag.killer = models.Player.objects.get(id=frag_data['killer']['id'])
@@ -351,16 +353,44 @@ class LogViewSet(viewsets.ModelViewSet):
                 frag.killer_location_x = frag_data['killer']['location'][0]
                 frag.killer_location_y = frag_data['killer']['location'][1]
                 frag.killer_location_z = frag_data['killer']['location'][2]
-                frag.killer_pawn_class = models.PawnClass.objects.get_or_create(classname=frag_data['killer']['pawn'])[0]
+                if frag_data['killer']['pawn'] is not None:
+                    frag.killer_pawn_class = models.PawnClass.objects.get_or_create(classname=frag_data['killer']['pawn'])[0]
+                if frag_data['killer']['vehicle'] is not None:
+                    frag.killer_vehicle = models.PawnClass.objects.get_or_create(classname=frag_data['killer']['vehicle'])[0]
                 frag.victim = models.Player.objects.get(id=frag_data['victim']['id'])
                 frag.victim_team_index = frag_data['victim']['team']
                 frag.victim_location_x = frag_data['victim']['location'][0]
                 frag.victim_location_y = frag_data['victim']['location'][1]
                 frag.victim_location_z = frag_data['victim']['location'][2]
-                frag.victim_pawn_class = models.PawnClass.objects.get_or_create(classname=frag_data['victim']['pawn'])[0]
+                if frag_data['victim']['pawn'] is not None:
+                    frag.victim_pawn_class = models.PawnClass.objects.get_or_create(classname=frag_data['victim']['pawn'])[0]
+                if frag_data['victim']['vehicle'] is not None:
+                    frag.killer_vehicle = models.PawnClass.objects.get_or_create(classname=frag_data['victim']['vehicle'])[0]
                 frag.distance = np.linalg.norm(np.subtract(frag.victim_location, frag.killer_location))
                 frag.round = round
                 frag.save()
+
+            for vehicle_frag_data in round_data['vehicle_frags']:
+                vehicle_frag = models.VehicleFrag()
+                vehicle_frag.round = round
+                vehicle_frag.time = vehicle_frag_data['time']
+                vehicle_frag.damage_type = models.DamageTypeClass.objects.get_or_create(id=vehicle_frag_data['damage_type'])[0]
+                vehicle_frag.killer = models.Player.objects.get(id=vehicle_frag_data['killer']['id'])
+                vehicle_frag.killer_team_index = vehicle_frag_data['killer']['team']
+                vehicle_frag.killer_location_x = vehicle_frag_data['killer']['location'][0]
+                vehicle_frag.killer_location_y = vehicle_frag_data['killer']['location'][1]
+                vehicle_frag.killer_location_z = vehicle_frag_data['killer']['location'][2]
+                if vehicle_frag_data['killer']['pawn'] is not None:
+                    vehicle_frag.killer_pawn_class = models.PawnClass.objects.get_or_create(classname=vehicle_frag_data['killer']['pawn'])[0]
+                if vehicle_frag_data['killer']['vehicle'] is not None:
+                    vehicle_frag.killer_vehicle_class = models.PawnClass.objects.get_or_create(classname=vehicle_frag_data['killer']['vehicle'])[0]
+                vehicle_frag.vehicle_class = models.PawnClass.objects.get_or_create(classname=vehicle_frag_data['destroyed_vehicle']['vehicle'])[0]
+                vehicle_frag.vehicle_team_index = vehicle_frag_data['destroyed_vehicle']['team']
+                vehicle_frag.vehicle_location_x = vehicle_frag_data['destroyed_vehicle']['location'][0]
+                vehicle_frag.vehicle_location_x = vehicle_frag_data['destroyed_vehicle']['location'][1]
+                vehicle_frag.vehicle_location_x = vehicle_frag_data['destroyed_vehicle']['location'][2]
+                vehicle_frag.distance = np.linalg.norm(np.subtract(vehicle_frag.vehicle_location, vehicle_frag.killer_location))
+                vehicle_frag.save()
 
             for rally_point_data in round_data['rally_points']:
                 rally_point = models.RallyPoint()
@@ -602,6 +632,18 @@ def damage_type_friendly_fire(request):
     return JsonResponse({
         'results': results
     })
+
+import datetime
+
+
+def top_kills_this_week(request):
+    # each round/log that started last week
+    # now minus 7 days
+    started_at = datetime.datetime.now() - datetime.timedelta(days=7)
+    rounds = models.Round.objects.filter(started_at__gte=started_at)
+    # all frags for all rounds
+    frags = models.Frag.objects.filter(round__in=rounds)
+    # TODO: now group by killer
 
 def easter(request):
     player_counts = dict()

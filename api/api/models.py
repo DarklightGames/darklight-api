@@ -39,6 +39,10 @@ class Player(models.Model):
     def name(self):
         return self.names.all()[0].name if len(self.names.all()) > 0 else 'Unknown'
 
+    @property
+    def ips(self):
+        return list(set(self.sessions.values_list('ip', flat=True).order_by('ip')))
+
     # TODO: move this elsewhere, kinda sloppy having it here
     def calculate_stats(self):
         self.kills = Frag.objects.filter(killer=self).count()
@@ -147,13 +151,15 @@ class Frag(models.Model):
     killer_location_x = models.FloatField(default=0.0)
     killer_location_y = models.FloatField(default=0.0)
     killer_location_z = models.FloatField(default=0.0)
+    killer_vehicle = models.ForeignKey(PawnClass, on_delete=models.SET_NULL, related_name='+', null=True)
     victim = models.ForeignKey(Player, on_delete=models.DO_NOTHING, related_name='+')
     victim_pawn_class = models.ForeignKey(PawnClass, on_delete=models.DO_NOTHING, related_name='+', null=True)
     victim_team_index = models.SmallIntegerField()
     victim_location_x = models.FloatField(default=0.0)
     victim_location_y = models.FloatField(default=0.0)
     victim_location_z = models.FloatField(default=0.0)
-    distance = models.FloatField(default=0.0)
+    victim_vehicle = models.ForeignKey(PawnClass, on_delete=models.SET_NULL, related_name='+', null=True)
+    distance = models.IntegerField(default=0.0)
     round = models.ForeignKey(Round, on_delete=models.CASCADE)
 
     @property
@@ -171,6 +177,33 @@ class Frag(models.Model):
     @property
     def is_friendly_fire(self):
         return not self.is_suicide and self.killer_team_index == self.victim_team_index
+
+
+class VehicleFrag(models.Model):
+    round = models.ForeignKey(Round, on_delete=models.CASCADE)
+    damage_type = models.ForeignKey(DamageTypeClass, on_delete=models.DO_NOTHING)
+    time = models.IntegerField()
+    killer = models.ForeignKey(Player, on_delete=models.DO_NOTHING, related_name='+')
+    killer_team_index = models.SmallIntegerField()
+    killer_pawn_class = models.ForeignKey(PawnClass, on_delete=models.DO_NOTHING, related_name='+', null=True)
+    killer_location_x = models.FloatField(default=0.0)
+    killer_location_y = models.FloatField(default=0.0)
+    killer_location_z = models.FloatField(default=0.0)
+    killer_vehicle_class = models.ForeignKey(PawnClass, on_delete=models.DO_NOTHING, related_name='+', null=True)
+    vehicle_class = models.ForeignKey(PawnClass, on_delete=models.DO_NOTHING, related_name='+', null=True)
+    vehicle_team_index = models.IntegerField()
+    vehicle_location_x = models.FloatField(default=0.0)
+    vehicle_location_y = models.FloatField(default=0.0)
+    vehicle_location_z = models.FloatField(default=0.0)
+    distance = models.IntegerField(default=0.0)
+
+    @property
+    def killer_location(self):
+        return (self.killer_location_x, self.killer_location_y)
+
+    @property
+    def vehicle_location(self):
+        return (self.vehicle_location_x, self.vehicle_location_y)
 
 
 class RallyPoint(models.Model):

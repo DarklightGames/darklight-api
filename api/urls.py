@@ -31,6 +31,7 @@ router.register(r'patrons', views.PatronViewSet)
 router.register(r'announcements', views.AnnouncementViewSet)
 router.register(r'rally-points', views.RallyPointViewSet)
 router.register(r'text-messages', views.TextMessageViewset)
+router.register(r'vehicle-frags', views.VehicleFragViewSet)
 
 urlpatterns = [
     url(r'^', include(router.urls)),

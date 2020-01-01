@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.db import models
-from .models import Patron, Player, Announcement, Report, TextMessage, Event
+from .models import Patron, Player, Announcement, Report, TextMessage, Event, Log
 from django_admin_listfilter_dropdown.filters import DropdownFilter
 from admin_auto_filters.filters import AutocompleteFilter
 from prettyjson import PrettyJSONWidget
@@ -14,6 +14,7 @@ class PatronAdmin(admin.ModelAdmin):
 class PlayerAdmin(admin.ModelAdmin):
     search_fields = ('id', 'names__name')
     exclude = ('names', 'sessions')
+    list_display = ['id', 'name', 'playtime', 'ips']
     list_filter = []
 
     def has_add_permission(self, request):
@@ -28,6 +29,10 @@ class PlayerAdmin(admin.ModelAdmin):
 
 class AnnouncementAdmin(admin.ModelAdmin):
     list_display = ('title', 'created_at', 'is_published')
+
+
+class LogAdmin(admin.ModelAdmin):
+    list_display = ('id', 'created_at')
 
 
 class ReportAdmin(admin.ModelAdmin):
@@ -61,9 +66,6 @@ class TextMessageAdmin(admin.ModelAdmin):
     def has_change_permission(self, request, obj=None):
         return False
 
-    def has_delete_permission(self, request, obj=None):
-        return False
-
 
 class EventAdmin(admin.ModelAdmin):
     list_display = ('type', 'data')
@@ -85,3 +87,4 @@ admin.site.register(Report, ReportAdmin)
 admin.site.register(TextMessage, TextMessageAdmin)
 admin.site.register(Announcement, AnnouncementAdmin)
 admin.site.register(Event, EventAdmin)
+admin.site.register(Log, LogAdmin)
