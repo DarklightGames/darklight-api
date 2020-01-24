@@ -8,7 +8,6 @@ RESTful API for Darkest Hour: Europe '44-'45 telemetry data.
     cd C:\darklight-api
     virtualenv env
     env\Scripts\activate
-    (env)> cd api
     (env)> pip install -r requirements.txt
     (env)> python manage.py migrate
 
