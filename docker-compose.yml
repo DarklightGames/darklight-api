@@ -1,0 +1,77 @@
+version: '3.7'
+
+services:
+  api:
+    build: .
+    command: gunicorn api.wsgi:application --bind 0.0.0.0:8000
+    # command: python manage.py runserver 0.0.0.0:8000
+    # command: gunicorn -b unix:/gunicorn_socket/socket api.wsgi.application
+    volumes:
+      # - ./darklight-api/:/home/app/darklight-api
+      - static_volume:/home/app/src/static
+      - storage_volume:/home/app/src/storage
+      # - gunicorn_socket:/gunicorn_socket
+    expose: 
+      - 8000
+    environment:
+      API_DJANGO_SECRET_KEY_FILE: /run/secrets/api_django_secret_key
+      API_SECRET_FILE: /run/secrets/api_secret
+      API_DEBUG: ${API_DEBUG}
+      API_ALLOWED_HOSTS: ${API_ALLOWED_HOSTS:-localhost 127.0.0.1 [::1]}
+      DATABASE_ENGINE: django.db.backends.postgresql
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME_FILE: /run/secrets/postgres_db
+      DATABASE_USER_FILE: /run/secrets/postgres_username
+      DATABASE_PASSWORD_FILE: /run/secrets/postgres_password
+    depends_on:
+      - postgres
+    secrets:
+      - api_django_secret_key
+      - api_secret
+      - postgres_db
+      - postgres_user
+      - postgres_password
+
+  postgres:
+    image: postgres:13.2-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    expose:
+      - 5432
+    environment:
+      POSTGRES_DB_FILE: /run/secrets/postgres_db
+      POSTGRES_USER_FILE: /run/secrets/postgres_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_db
+      - postgres_user
+      - postgres_password
+
+  nginx:
+    build: ./nginx
+    ports:
+      - 8000:80
+    volumes: 
+      - static_volume:/static/
+      # - gunicorn_socket:/gunicorn_socket
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  static_volume:
+  storage_volume:
+  # gunicorn_socket:
+
+secrets:
+  api_django_secret_key:
+    file: secrets/api_django_secret_key
+  api_secret:
+    file: secrets/api_secret
+  postgres_db:
+    file: secrets/postgres_db
+  postgres_password:
+    file: secrets/postgres_password
+  postgres_user:
+    file: secrets/postgres_user
