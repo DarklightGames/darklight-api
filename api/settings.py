@@ -11,6 +11,11 @@ https://docs.djangoproject.com/en/2.1/ref/settings/
 """
 
 import os
+from functools import partial
+from get_docker_secret import get_docker_secret
+
+get_secret = partial(get_docker_secret, secrets_dir=os.path.join('/', 'run', 'secrets')) 
+
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -19,14 +24,13 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.1/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("API_DJANGO_SECRET_KEY")
+# SECURITY WARNING: keep the secret keys used in production secret!
+SECRET_KEY = get_secret("django_secret_key")
+API_SECRET = get_secret("api_secret")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = int(os.environ.get("API_DEBUG", default=0))
-
-ALLOWED_HOSTS = os.environ.get("API_ALLOWED_HOSTS").split(" ")
-
+DEBUG = bool(int(os.getenv("DJANGO_DEBUG", default=0)))
+ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS").split(",")
 
 # Application definition
 
@@ -89,10 +93,10 @@ WSGI_APPLICATION = 'api.wsgi.application'
 
 DATABASES = {
     'default': {
-        "ENGINE": os.environ.get("DATABASE_ENGINE", "django.db.backends.sqlite3"),
-        "NAME": os.environ.get("DATABASE_NAME", os.path.join(BASE_DIR, "db.sqlite3")),
-        "USER": os.environ.get("DATABASE_USER", "user"),
-        "PASSWORD": os.environ.get("DATABASE_PASSWORD", "password"),
+        "ENGINE": os.environ.get("DATABASE_ENGINE"),
+        "NAME": get_secret("DATABASE"),
+        "USER": get_secret("DATABASE_USER", default="user"),
+        "PASSWORD": get_secret("DATABASE_PASSWORD", default="password"),
         "HOST": os.environ.get("DATABASE_HOST", "localhost"),
         "PORT": os.environ.get("DATABASE_PORT", "5432"),
     }

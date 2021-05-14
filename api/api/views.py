@@ -19,6 +19,7 @@ import os
 from dateutil import parser
 from .exceptions import MissingParametersException
 import semver
+from django.conf import settings
 
 
 class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
@@ -237,7 +238,7 @@ class LogViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def create(self, request, *args, **kwargs):
         secret = request.data['secret']
-        if secret != os.environ['API_SECRET']:
+        if secret != settings.API_SECRET:
             raise PermissionDenied('Invalid secret.')
         data = request.data['log'].file.read()
         data = data.replace(b'\r', b'')

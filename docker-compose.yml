@@ -14,39 +14,39 @@ services:
     expose: 
       - 8000
     environment:
-      API_DJANGO_SECRET_KEY_FILE: /run/secrets/api_django_secret_key
-      API_SECRET_FILE: /run/secrets/api_secret
-      API_DEBUG: ${API_DEBUG}
-      API_ALLOWED_HOSTS: ${API_ALLOWED_HOSTS:-localhost 127.0.0.1 [::1]}
+      DJANGO_SECRET_KEY: /run/secrets/django_secret_key
+      DJANGO_ALLOWED_HOSTS: ${API_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}
+      API_SECRET: /run/secrets/api_secret
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
       DATABASE_ENGINE: django.db.backends.postgresql
-      DATABASE_HOST: postgres
+      DATABASE_HOST: db
       DATABASE_PORT: 5432
-      DATABASE_NAME_FILE: /run/secrets/postgres_db
-      DATABASE_USER_FILE: /run/secrets/postgres_username
-      DATABASE_PASSWORD_FILE: /run/secrets/postgres_password
+      DATABASE: /run/secrets/database
+      DATABASE_USER: /run/secrets/database_user
+      DATABASE_PASSWORD: /run/secrets/database_password
     depends_on:
-      - postgres
+      - db
     secrets:
       - api_django_secret_key
       - api_secret
-      - postgres_db
-      - postgres_user
-      - postgres_password
+      - database
+      - database_user
+      - database_password
 
-  postgres:
+  db:
     image: postgres:13.2-alpine
     volumes:
-      - postgres_data:/var/lib/postgresql/data/
+      - database_data:/var/lib/postgresql/data/
     expose:
       - 5432
     environment:
-      POSTGRES_DB_FILE: /run/secrets/postgres_db
-      POSTGRES_USER_FILE: /run/secrets/postgres_user
-      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_DB_FILE: /run/secrets/database
+      POSTGRES_USER_FILE: /run/secrets/database_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
     secrets:
-      - postgres_db
-      - postgres_user
-      - postgres_password
+      - database
+      - database_user
+      - database_password
 
   nginx:
     build: ./nginx
@@ -59,19 +59,19 @@ services:
       - api
 
 volumes:
-  postgres_data:
+  database_data:
   static_volume:
   storage_volume:
   # gunicorn_socket:
 
 secrets:
   api_django_secret_key:
-    file: secrets/api_django_secret_key
+    file: secrets/django_secret_key
   api_secret:
     file: secrets/api_secret
-  postgres_db:
-    file: secrets/postgres_db
-  postgres_password:
-    file: secrets/postgres_password
-  postgres_user:
-    file: secrets/postgres_user
+  database:
+    file: secrets/database
+  database_password:
+    file: secrets/database_password
+  database_user:
+    file: secrets/database_user
