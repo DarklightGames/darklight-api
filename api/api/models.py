@@ -23,7 +23,7 @@ class Session(models.Model):
 
 
 class Player(models.Model):
-    id = models.CharField(max_length=17, primary_key=True)
+    id = models.BigIntegerField(primary_key=True)
     names = models.ManyToManyField(PlayerName)
     sessions = models.ManyToManyField(Session)
     kills = models.PositiveIntegerField(default=0)
