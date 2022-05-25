@@ -1,3 +1,6 @@
+import logging
+import time
+import timeit
 from rest_framework import viewsets, status
 from rest_framework.filters import OrderingFilter, SearchFilter
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
@@ -236,6 +239,7 @@ class LogViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
+        start = time.time()
         secret = request.data['secret']
         if secret != os.environ['API_SECRET']:
             raise PermissionDenied('Invalid secret.')
@@ -325,6 +329,9 @@ class LogViewSet(viewsets.ModelViewSet):
             log.players.add(player)
 
         for text_message_data in data['text_messages']:
+            if(isinstance(text_message_data['sender'], str)):
+              # filter out special IDs (e.g. admins)
+              continue
             text_message = models.TextMessage()
             text_message.log = log
             text_message.type = text_message_data['type']
@@ -446,6 +453,8 @@ class LogViewSet(viewsets.ModelViewSet):
         log_path = os.path.join('storage', 'logs', str(crc) + '.log')
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         json.dump(data, open(log_path, 'w'))
+        end = time.time()
+        logging.info("Benchmarking %s, time elapsed: %ds", request.data['log'].name, end - start)
 
         return Response({}, status=status.HTTP_201_CREATED, headers={})
 
