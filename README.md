@@ -27,3 +27,26 @@ RESTful API for Darkest Hour: Europe '44-'45 telemetry data.
 
 ## Running the server
     (env)> python manage.py runserver
+
+## Configuring the database
+
+### SQlite
+
+ez
+
+### MySQL
+
+ 1. `sudo apt-get install mysql-server libmysqlclient-dev`
+ 2. `pip install mysqlclient`
+ 3. in [settings.py](settings.py) set:
+ ```
+ DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.mysql', 
+        'NAME': 'darklight',
+        'USER': 'root',
+        'PASSWORD': 'qwerty',
+        'HOST': '127.0.0.1',   # Or an IP Address that your DB is hosted on
+        'PORT': '3306',
+    }
+}```
