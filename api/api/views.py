@@ -239,7 +239,7 @@ class LogViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        start = time.time()
+        start_time = time.time()
         secret = request.data['secret']
         if secret != os.environ['API_SECRET']:
             raise PermissionDenied('Invalid secret.')
@@ -298,6 +298,8 @@ class LogViewSet(viewsets.ModelViewSet):
 
         log.save()
 
+        map_data_time = time.time()
+
         for player_data in data['players']:
             try:
                 player = models.Player.objects.get(id=player_data['id'])
@@ -328,6 +330,8 @@ class LogViewSet(viewsets.ModelViewSet):
             player.save()
             log.players.add(player)
 
+        player_data_time = time.time()
+
         for text_message_data in data['text_messages']:
             if(isinstance(text_message_data['sender'], str)):
               # filter out special IDs (e.g. admins)
@@ -341,6 +345,8 @@ class LogViewSet(viewsets.ModelViewSet):
             text_message.team_index = text_message_data['team_index']
             text_message.squad_index = text_message_data['squad_index']
             text_message.save()
+
+        text_message_data_time = time.time()
 
         for round_data in data['rounds']:
             round = models.Round()
@@ -445,16 +451,26 @@ class LogViewSet(viewsets.ModelViewSet):
 
         log.save()
 
+        round_data_time = time.time()
+
         # Recalculate all aggregate stats for players involved in the game.
         for player in log.players.all():
             player.calculate_stats()
+
+        calculate_stats_time = time.time()
 
         # TODO: store the log on disk, gzip'd probably
         log_path = os.path.join('storage', 'logs', str(crc) + '.log')
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         json.dump(data, open(log_path, 'w'))
         end = time.time()
-        logging.info("Benchmarking %s, time elapsed: %ds", request.data['log'].name, end - start)
+        
+        map_data_time = map_data_time - start_time
+        player_data_time = player_data_time - map_data_time
+        text_message_data_time = text_message_data_time - player_data_time
+        round_data_time = round_data_time - text_message_data_time
+        calculate_stats_time = calculate_stats_time - round_data_time
+        logging.info("%s, %d, %d, %d, %d, %d", request.data['log'].name, map_data_time, player_data_time, text_message_data_time, round_data_time, calculate_stats_time)
 
         return Response({}, status=status.HTTP_201_CREATED, headers={})
 
