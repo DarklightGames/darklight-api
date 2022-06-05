@@ -1,6 +1,8 @@
+import dataclasses
 import logging
 import time
 import timeit
+from typing import Any, List
 from rest_framework import viewsets, status
 from rest_framework.filters import OrderingFilter, SearchFilter
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
@@ -23,6 +25,103 @@ from dateutil import parser
 from .exceptions import MissingParametersException
 import semver
 
+def create_frag(frag_data, round):
+    frag = models.Frag()
+    frag.damage_type = models.DamageTypeClass.objects.get_or_create(id=frag_data['damage_type'])[0]
+    frag.hit_index = frag_data['hit_index']
+    frag.time = frag_data['time']
+    frag.killer = models.Player.objects.get(id=frag_data['killer']['id'])
+    frag.killer_team_index = frag_data['killer']['team']
+    frag.killer_location_x = frag_data['killer']['location'][0]
+    frag.killer_location_y = frag_data['killer']['location'][1]
+    frag.killer_location_z = frag_data['killer']['location'][2]
+    if frag_data['killer']['pawn'] is not None:
+        frag.killer_pawn_class = models.PawnClass.objects.get_or_create(classname=frag_data['killer']['pawn'])[0]
+    if frag_data['killer']['vehicle'] is not None:
+        frag.killer_vehicle = models.PawnClass.objects.get_or_create(classname=frag_data['killer']['vehicle'])[0]
+    frag.victim = models.Player.objects.get(id=frag_data['victim']['id'])
+    frag.victim_team_index = frag_data['victim']['team']
+    frag.victim_location_x = frag_data['victim']['location'][0]
+    frag.victim_location_y = frag_data['victim']['location'][1]
+    frag.victim_location_z = frag_data['victim']['location'][2]
+    if frag_data['victim']['pawn'] is not None:
+        frag.victim_pawn_class = models.PawnClass.objects.get_or_create(classname=frag_data['victim']['pawn'])[0]
+    if frag_data['victim']['vehicle'] is not None:
+        frag.killer_vehicle = models.PawnClass.objects.get_or_create(classname=frag_data['victim']['vehicle'])[0]
+    frag.distance = np.linalg.norm(np.subtract(frag.victim_location, frag.killer_location))
+    frag.round = round
+    return frag
+
+def create_vehicle_frag(vehicle_frag_data, round):
+    vehicle_frag = models.VehicleFrag()
+    vehicle_frag.round = round
+    vehicle_frag.time = vehicle_frag_data['time']
+    vehicle_frag.damage_type = models.DamageTypeClass.objects.get_or_create(id=vehicle_frag_data['damage_type'])[0]
+    vehicle_frag.killer = models.Player.objects.get(id=vehicle_frag_data['killer']['id'])
+    vehicle_frag.killer_team_index = vehicle_frag_data['killer']['team']
+    vehicle_frag.killer_location_x = vehicle_frag_data['killer']['location'][0]
+    vehicle_frag.killer_location_y = vehicle_frag_data['killer']['location'][1]
+    vehicle_frag.killer_location_z = vehicle_frag_data['killer']['location'][2]
+    if vehicle_frag_data['killer']['pawn'] is not None:
+        vehicle_frag.killer_pawn_class = models.PawnClass.objects.get_or_create(classname=vehicle_frag_data['killer']['pawn'])[0]
+    if vehicle_frag_data['killer']['vehicle'] is not None:
+        vehicle_frag.killer_vehicle_class = models.PawnClass.objects.get_or_create(classname=vehicle_frag_data['killer']['vehicle'])[0]
+    vehicle_frag.vehicle_class = models.PawnClass.objects.get_or_create(classname=vehicle_frag_data['destroyed_vehicle']['vehicle'])[0]
+    vehicle_frag.vehicle_team_index = vehicle_frag_data['destroyed_vehicle']['team']
+    vehicle_frag.vehicle_location_x = vehicle_frag_data['destroyed_vehicle']['location'][0]
+    vehicle_frag.vehicle_location_x = vehicle_frag_data['destroyed_vehicle']['location'][1]
+    vehicle_frag.vehicle_location_x = vehicle_frag_data['destroyed_vehicle']['location'][2]
+    vehicle_frag.distance = np.linalg.norm(np.subtract(vehicle_frag.vehicle_location, vehicle_frag.killer_location))
+    return vehicle_frag
+
+def create_rally_point(rally_point_data, round):
+    rally_point = models.RallyPoint()
+    rally_point.team_index = rally_point_data['team_index']
+    rally_point.squad_index = rally_point_data['squad_index']
+    rally_point.player = models.Player.objects.get(id=rally_point_data['player_id'])
+    rally_point.is_established = rally_point_data['is_established']
+    rally_point.establisher_count = rally_point_data['establisher_count']
+    rally_point.location_x = rally_point_data['location'][0]
+    rally_point.location_y = rally_point_data['location'][1]
+    rally_point.location_z = rally_point_data['location'][2]
+    rally_point.created_at = parser.parse(rally_point_data['created_at'])
+    rally_point.destroyed_at = None if rally_point_data['destroyed_at'] is None else parser.parse(rally_point_data['destroyed_at'])
+    rally_point.destroyed_reason = rally_point_data['destroyed_reason']
+    rally_point.spawn_count = rally_point_data['spawn_count']
+    rally_point.round = round
+    return rally_point
+
+def create_construction(construction_data, round):
+    construction = models.Construction()
+    try:
+        construction_class = models.ConstructionClass.objects.get(classname=construction_data['class'])
+    except ObjectDoesNotExist:
+        construction_class = models.ConstructionClass(classname=construction_data['class'])
+        construction_class.save()
+    construction.classname = construction_class
+    construction.player = models.Player.objects.get(id=construction_data['player_id'])
+    construction.team_index = construction_data['team']
+    construction.round_time = construction_data['round_time']
+    construction.location_x = construction_data['location'][0]
+    construction.location_y = construction_data['location'][1]
+    construction.location_z = construction_data['location'][2]
+    construction.round = round
+    return construction
+
+def create_event(event_data, round):
+  event = models.Event()
+  event.type = event_data['type']
+  event.data = json.dumps(event_data['data'])
+  event.round = round
+  return event
+
+def create_round(round_data, log):
+    round = models.Round()
+    round.started_at = parser.parse(round_data['started_at'])
+    round.ended_at = None if round_data['ended_at'] is None else parser.parse(round_data['ended_at'])
+    round.winner = round_data['winner']
+    round.log = log
+    return round
 
 class PlayerViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = models.Player.objects.all()
@@ -348,106 +447,59 @@ class LogViewSet(viewsets.ModelViewSet):
 
         text_message_data_time = time.time()
 
-        for round_data in data['rounds']:
+        @dataclasses.dataclass
+        class RoundSupplement:
+          round: models.Round = None
+          frags: List[Any] = None
+          vehicle_frags: List[Any] = None
+          rally_points: List[Any] = None
+          constructions: List[Any] = None
+          events: List[Any] = None
+
+        def get_round_suplement(round_data):
             round = models.Round()
             round.started_at = parser.parse(round_data['started_at'])
             round.ended_at = None if round_data['ended_at'] is None else parser.parse(round_data['ended_at'])
             round.winner = round_data['winner']
             round.log = log
-            round.save()
+            return RoundSupplement(round, round_data['frags'], round_data['vehicle_frags'], round_data['rally_points'], round_data['constructions'], round_data['events'])
 
-            for frag_data in round_data['frags']:
-                frag = models.Frag()
-                frag.damage_type = models.DamageTypeClass.objects.get_or_create(id=frag_data['damage_type'])[0]
-                frag.hit_index = frag_data['hit_index']
-                frag.time = frag_data['time']
-                frag.killer = models.Player.objects.get(id=frag_data['killer']['id'])
-                frag.killer_team_index = frag_data['killer']['team']
-                frag.killer_location_x = frag_data['killer']['location'][0]
-                frag.killer_location_y = frag_data['killer']['location'][1]
-                frag.killer_location_z = frag_data['killer']['location'][2]
-                if frag_data['killer']['pawn'] is not None:
-                    frag.killer_pawn_class = models.PawnClass.objects.get_or_create(classname=frag_data['killer']['pawn'])[0]
-                if frag_data['killer']['vehicle'] is not None:
-                    frag.killer_vehicle = models.PawnClass.objects.get_or_create(classname=frag_data['killer']['vehicle'])[0]
-                frag.victim = models.Player.objects.get(id=frag_data['victim']['id'])
-                frag.victim_team_index = frag_data['victim']['team']
-                frag.victim_location_x = frag_data['victim']['location'][0]
-                frag.victim_location_y = frag_data['victim']['location'][1]
-                frag.victim_location_z = frag_data['victim']['location'][2]
-                if frag_data['victim']['pawn'] is not None:
-                    frag.victim_pawn_class = models.PawnClass.objects.get_or_create(classname=frag_data['victim']['pawn'])[0]
-                if frag_data['victim']['vehicle'] is not None:
-                    frag.killer_vehicle = models.PawnClass.objects.get_or_create(classname=frag_data['victim']['vehicle'])[0]
-                frag.distance = np.linalg.norm(np.subtract(frag.victim_location, frag.killer_location))
-                frag.round = round
-                frag.save()
+        # def get_round_suplement(round_data):
+        #     round = models.Round()
+        #     round.started_at = parser.parse(round_data['started_at'])
+        #     round.ended_at = None if round_data['ended_at'] is None else parser.parse(round_data['ended_at'])
+        #     round.winner = round_data['winner']
+        #     round.log = log
+        #     round.save()
 
-            for vehicle_frag_data in round_data['vehicle_frags']:
-                vehicle_frag = models.VehicleFrag()
-                vehicle_frag.round = round
-                vehicle_frag.time = vehicle_frag_data['time']
-                vehicle_frag.damage_type = models.DamageTypeClass.objects.get_or_create(id=vehicle_frag_data['damage_type'])[0]
-                vehicle_frag.killer = models.Player.objects.get(id=vehicle_frag_data['killer']['id'])
-                vehicle_frag.killer_team_index = vehicle_frag_data['killer']['team']
-                vehicle_frag.killer_location_x = vehicle_frag_data['killer']['location'][0]
-                vehicle_frag.killer_location_y = vehicle_frag_data['killer']['location'][1]
-                vehicle_frag.killer_location_z = vehicle_frag_data['killer']['location'][2]
-                if vehicle_frag_data['killer']['pawn'] is not None:
-                    vehicle_frag.killer_pawn_class = models.PawnClass.objects.get_or_create(classname=vehicle_frag_data['killer']['pawn'])[0]
-                if vehicle_frag_data['killer']['vehicle'] is not None:
-                    vehicle_frag.killer_vehicle_class = models.PawnClass.objects.get_or_create(classname=vehicle_frag_data['killer']['vehicle'])[0]
-                vehicle_frag.vehicle_class = models.PawnClass.objects.get_or_create(classname=vehicle_frag_data['destroyed_vehicle']['vehicle'])[0]
-                vehicle_frag.vehicle_team_index = vehicle_frag_data['destroyed_vehicle']['team']
-                vehicle_frag.vehicle_location_x = vehicle_frag_data['destroyed_vehicle']['location'][0]
-                vehicle_frag.vehicle_location_x = vehicle_frag_data['destroyed_vehicle']['location'][1]
-                vehicle_frag.vehicle_location_x = vehicle_frag_data['destroyed_vehicle']['location'][2]
-                vehicle_frag.distance = np.linalg.norm(np.subtract(vehicle_frag.vehicle_location, vehicle_frag.killer_location))
-                vehicle_frag.save()
+        #     # rounds = [create_round(round_data, log) for round_data in data['rounds']]
+        #     frags = [create_frag(frag_data, round) for round_data in data['rounds'] for frag_data in round_data['frags']]
+        #     vehicle_frags = [create_vehicle_frag(vehicle_frag_data, round) for round_data in data['rounds'] for vehicle_frag_data in round_data['vehicle_frags']]
+        #     rally_points = [create_rally_point(rally_point_data, round) for round_data in data['rounds'] for rally_point_data in round_data['rally_points']]
+        #     constructions = [create_construction(construction_data, round) for round_data in data['rounds'] for construction_data in round_data['constructions']]
+        #     events = [create_event(event_data, round) for round_data in data['rounds'] if 'events' in round_data and round_data['events'] is not None for event_data in round_data['events']]
+        #     return RoundSupplement(round, frags, vehicle_frags, rally_points, constructions, events)
 
-            for rally_point_data in round_data['rally_points']:
-                rally_point = models.RallyPoint()
-                rally_point.team_index = rally_point_data['team_index']
-                rally_point.squad_index = rally_point_data['squad_index']
-                rally_point.player = models.Player.objects.get(id=rally_point_data['player_id'])
-                rally_point.is_established = rally_point_data['is_established']
-                rally_point.establisher_count = rally_point_data['establisher_count']
-                rally_point.location_x = rally_point_data['location'][0]
-                rally_point.location_y = rally_point_data['location'][1]
-                rally_point.location_z = rally_point_data['location'][2]
-                rally_point.created_at = parser.parse(rally_point_data['created_at'])
-                rally_point.destroyed_at = None if rally_point_data['destroyed_at'] is None else parser.parse(rally_point_data['destroyed_at'])
-                rally_point.destroyed_reason = rally_point_data['destroyed_reason']
-                rally_point.spawn_count = rally_point_data['spawn_count']
-                rally_point.round = round
-                rally_point.save()
+        round_supplements = [get_round_suplement(round_data) for round_data in data['rounds']]
+        rounds = [e.round for e in round_supplements]
+        models.Round.objects.bulk_create(rounds)
+        frags = [create_frag(frag, e.round) for e in round_supplements for frag in e.frags]
+        models.Frag.objects.bulk_create(frags)
+        vehicle_frags = [create_vehicle_frag(vehicle_frag, e.round) for e in round_supplements for vehicle_frag in e.vehicle_frags]
+        models.VehicleFrag.objects.bulk_create(vehicle_frags)
+        rally_points = [create_rally_point(rally_point, e.round) for e in round_supplements for rally_point in e.rally_points]
+        models.RallyPoint.objects.bulk_create(rally_points)
+        constructions = [create_construction(construction, e.round) for e in round_supplements for construction in e.constructions]
+        models.Construction.objects.bulk_create(constructions)
+        events = [create_event(event, e.round) for e in round_supplements for event in e.events]
+        models.Construction.objects.bulk_create(events)
 
-            for construction_data in round_data['constructions']:
-                construction = models.Construction()
-                try:
-                    construction_class = models.ConstructionClass.objects.get(classname=construction_data['class'])
-                except ObjectDoesNotExist:
-                    construction_class = models.ConstructionClass(classname=construction_data['class'])
-                    construction_class.save()
-                construction.classname = construction_class
-                construction.player = models.Player.objects.get(id=construction_data['player_id'])
-                construction.team_index = construction_data['team']
-                construction.round_time = construction_data['round_time']
-                construction.location_x = construction_data['location'][0]
-                construction.location_y = construction_data['location'][1]
-                construction.location_z = construction_data['location'][2]
-                construction.round = round
-                construction.save()
-
-            if 'events' in round_data:
-                events = round_data['events']
-
-                for event_data in events:
-                    event = models.Event()
-                    event.type = event_data['type']
-                    event.data = json.dumps(event_data['data'])
-                    event.round = round
-                    event.save()
+        # models.Round.objects.bulk_create(rounds)
+        # models.Frag.objects.bulk_create(frags)
+        # models.VehicleFrag.objects.bulk_create(vehicle_frags)
+        # models.RallyPoint.objects.bulk_create(rally_points)
+        # models.Construction.objects.bulk_create(constructions)
+        # models.Event.objects.bulk_create(events)
 
         log.save()
 
@@ -465,12 +517,12 @@ class LogViewSet(viewsets.ModelViewSet):
         json.dump(data, open(log_path, 'w'))
         end = time.time()
         
-        map_data_time = map_data_time - start_time
-        player_data_time = player_data_time - map_data_time
-        text_message_data_time = text_message_data_time - player_data_time
-        round_data_time = round_data_time - text_message_data_time
-        calculate_stats_time = calculate_stats_time - round_data_time
-        logging.info("%s, %d, %d, %d, %d, %d", request.data['log'].name, map_data_time, player_data_time, text_message_data_time, round_data_time, calculate_stats_time)
+        map_data_delta = map_data_time - start_time
+        player_data_delta = player_data_time - map_data_time
+        text_message_data_delta = text_message_data_time - player_data_time
+        round_data_delta = round_data_time - text_message_data_time
+        calculate_stats_delta = calculate_stats_time - round_data_time
+        logging.info("%s, %d, %d, %d, %d, %d", request.data['log'].name, map_data_delta, player_data_delta, text_message_data_delta, round_data_delta, calculate_stats_delta)
 
         return Response({}, status=status.HTTP_201_CREATED, headers={})
 
