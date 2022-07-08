@@ -1,3 +1,6 @@
+import time
+
+import pytz
 from rest_framework import viewsets, status
 from rest_framework.filters import OrderingFilter, SearchFilter
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
@@ -17,6 +20,7 @@ from json.decoder import JSONDecodeError
 import binascii
 import os
 from dateutil import parser
+from dateutil.utils import default_tzinfo
 from .exceptions import MissingParametersException
 import semver
 
@@ -228,11 +232,13 @@ class TextMessageViewset(viewsets.ReadOnlyModelViewSet):
         return JsonResponse(data)
 
 
+def parse_dt(timestr: str):
+    return default_tzinfo(parser.parse(timestr), pytz.UTC)
+
 
 class LogViewSet(viewsets.ModelViewSet):
     queryset = models.Log.objects.all()
     serializer_class = serializers.LogSerializer
-
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
@@ -294,121 +300,138 @@ class LogViewSet(viewsets.ModelViewSet):
 
         log.save()
 
+        players_by_id = dict()
+
         for player_data in data['players']:
+            player_id = int(player_data['id'])
             try:
-                player = models.Player.objects.get(id=player_data['id'])
+                player = models.Player.objects.get(id=player_id)
             except ObjectDoesNotExist:
-                player = models.Player(id=player_data['id'])
+                player = models.Player(id=player_id)
                 player.save()
             for session_data in player_data['sessions']:
                 session = models.Session()
                 session.ip = session_data['ip']
-                session.started_at = session_data['started_at']
+                session.started_at = parse_dt(session_data['started_at'])
                 if semver.compare(data['version'][1:], '9.0.9') <= 0:
                     if session_data['ended_at'] == '':
                         # There was a bug with <=v9.0.9 where player timeouts would not terminate sessions, resulting in
                         # ended_at being an empty string. This fix effectively terminates the session immediately.
-                        session.ended_at = session_data['started_at']
+                        session.ended_at = parse_dt(session_data['started_at'])
                     else:
-                        session.ended_at = session_data['ended_at']
+                        session.ended_at = parse_dt(session_data['ended_at'])
                 else:
-                    session.ended_at = session_data['ended_at']
+                    session.ended_at = parse_dt(session_data['ended_at'])
                 session.save()
                 player.sessions.add(session)
             for name in player_data['names']:
                 if name not in map(lambda x: x.name, player.names.all()):
                     player_name = models.PlayerName(name=name)
                     player_name.save()
-                    player.save()
                     player.names.add(player_name)
             player.save()
             log.players.add(player)
+            players_by_id[player_id] = player
 
-        for text_message_data in data['text_messages']:
-            text_message = models.TextMessage()
-            text_message.log = log
-            text_message.type = text_message_data['type']
-            text_message.message = text_message_data['message']
-            text_message.sender = models.Player(id=text_message_data['sender'])
-            text_message.sent_at = parser.parse(text_message_data['sent_at'])
-            text_message.team_index = text_message_data['team_index']
-            text_message.squad_index = text_message_data['squad_index']
-            text_message.save()
+        # text messages
+        models.TextMessage.objects.bulk_create(
+            map(lambda text_message: models.TextMessage(
+                log=log,
+                type=text_message['type'],
+                message=text_message['message'],
+                sender=players_by_id[int(text_message['sender'])],
+                sent_at=parse_dt(text_message['sent_at']),
+                team_index=text_message['team_index'],
+                squad_index=text_message['squad_index']
+            ), data['text_messages']))
 
+        # damage types
+        unique_damage_types = self.get_unique_damage_types(data)
+        damage_types_by_id = {None: None}
+        for classname in unique_damage_types:
+            damage_types_by_id[classname] = models.DamageTypeClass.objects.get_or_create(id=classname)[0]
+
+        # pawn classes
+        unique_pawn_classes = self.get_unique_pawn_clases(data)
+        pawn_classes_by_id = {None: None}
+        for classname in unique_pawn_classes:
+            pawn_classes_by_id[classname] = models.PawnClass.objects.get_or_create(classname=classname)[0]
+
+        # rounds
         for round_data in data['rounds']:
             round = models.Round()
-            round.started_at = parser.parse(round_data['started_at'])
-            round.ended_at = None if round_data['ended_at'] is None else parser.parse(round_data['ended_at'])
+            round.started_at = parse_dt(round_data['started_at'])
+            round.ended_at = None if round_data['ended_at'] is None else parse_dt(round_data['ended_at'])
             round.winner = round_data['winner']
             round.log = log
             round.save()
 
-            for frag_data in round_data['frags']:
-                frag = models.Frag()
-                frag.damage_type = models.DamageTypeClass.objects.get_or_create(id=frag_data['damage_type'])[0]
-                frag.hit_index = frag_data['hit_index']
-                frag.time = frag_data['time']
-                frag.killer = models.Player.objects.get(id=frag_data['killer']['id'])
-                frag.killer_team_index = frag_data['killer']['team']
-                frag.killer_location_x = frag_data['killer']['location'][0]
-                frag.killer_location_y = frag_data['killer']['location'][1]
-                frag.killer_location_z = frag_data['killer']['location'][2]
-                if frag_data['killer']['pawn'] is not None:
-                    frag.killer_pawn_class = models.PawnClass.objects.get_or_create(classname=frag_data['killer']['pawn'])[0]
-                if frag_data['killer']['vehicle'] is not None:
-                    frag.killer_vehicle = models.PawnClass.objects.get_or_create(classname=frag_data['killer']['vehicle'])[0]
-                frag.victim = models.Player.objects.get(id=frag_data['victim']['id'])
-                frag.victim_team_index = frag_data['victim']['team']
-                frag.victim_location_x = frag_data['victim']['location'][0]
-                frag.victim_location_y = frag_data['victim']['location'][1]
-                frag.victim_location_z = frag_data['victim']['location'][2]
-                if frag_data['victim']['pawn'] is not None:
-                    frag.victim_pawn_class = models.PawnClass.objects.get_or_create(classname=frag_data['victim']['pawn'])[0]
-                if frag_data['victim']['vehicle'] is not None:
-                    frag.killer_vehicle = models.PawnClass.objects.get_or_create(classname=frag_data['victim']['vehicle'])[0]
-                frag.distance = np.linalg.norm(np.subtract(frag.victim_location, frag.killer_location))
-                frag.round = round
-                frag.save()
+            # 6.13s the time to beat on 2021-03-06T22_50_23.log
 
-            for vehicle_frag_data in round_data['vehicle_frags']:
-                vehicle_frag = models.VehicleFrag()
-                vehicle_frag.round = round
-                vehicle_frag.time = vehicle_frag_data['time']
-                vehicle_frag.damage_type = models.DamageTypeClass.objects.get_or_create(id=vehicle_frag_data['damage_type'])[0]
-                vehicle_frag.killer = models.Player.objects.get(id=vehicle_frag_data['killer']['id'])
-                vehicle_frag.killer_team_index = vehicle_frag_data['killer']['team']
-                vehicle_frag.killer_location_x = vehicle_frag_data['killer']['location'][0]
-                vehicle_frag.killer_location_y = vehicle_frag_data['killer']['location'][1]
-                vehicle_frag.killer_location_z = vehicle_frag_data['killer']['location'][2]
-                if vehicle_frag_data['killer']['pawn'] is not None:
-                    vehicle_frag.killer_pawn_class = models.PawnClass.objects.get_or_create(classname=vehicle_frag_data['killer']['pawn'])[0]
-                if vehicle_frag_data['killer']['vehicle'] is not None:
-                    vehicle_frag.killer_vehicle_class = models.PawnClass.objects.get_or_create(classname=vehicle_frag_data['killer']['vehicle'])[0]
-                vehicle_frag.vehicle_class = models.PawnClass.objects.get_or_create(classname=vehicle_frag_data['destroyed_vehicle']['vehicle'])[0]
-                vehicle_frag.vehicle_team_index = vehicle_frag_data['destroyed_vehicle']['team']
-                vehicle_frag.vehicle_location_x = vehicle_frag_data['destroyed_vehicle']['location'][0]
-                vehicle_frag.vehicle_location_x = vehicle_frag_data['destroyed_vehicle']['location'][1]
-                vehicle_frag.vehicle_location_x = vehicle_frag_data['destroyed_vehicle']['location'][2]
-                vehicle_frag.distance = np.linalg.norm(np.subtract(vehicle_frag.vehicle_location, vehicle_frag.killer_location))
-                vehicle_frag.save()
+            models.Frag.objects.bulk_create(
+                map(lambda frag_data: models.Frag(
+                    damage_type=damage_types_by_id[frag_data['damage_type']],
+                    hit_index=frag_data['hit_index'],
+                    time=frag_data['time'],
+                    killer=players_by_id[int(frag_data['killer']['id'])],
+                    killer_team_index=frag_data['killer']['team'],
+                    killer_location_x=frag_data['killer']['location'][0],
+                    killer_location_y=frag_data['killer']['location'][1],
+                    killer_location_z=frag_data['killer']['location'][2],
+                    killer_pawn_class=pawn_classes_by_id[frag_data['killer']['pawn']],
+                    killer_vehicle=pawn_classes_by_id[frag_data['killer']['vehicle']],
+                    victim=players_by_id[int(frag_data['victim']['id'])],
+                    victim_team_index=frag_data['victim']['team'],
+                    victim_location_x=frag_data['victim']['location'][0],
+                    victim_location_y=frag_data['victim']['location'][1],
+                    victim_location_z=frag_data['victim']['location'][2],
+                    victim_pawn_class=pawn_classes_by_id[frag_data['victim']['pawn']],
+                    distance=np.linalg.norm(np.subtract(frag_data['victim']['location'], frag_data['killer']['location'])),
+                    round=round,
+                ), round_data['frags'])
+            )
 
-            for rally_point_data in round_data['rally_points']:
-                rally_point = models.RallyPoint()
-                rally_point.team_index = rally_point_data['team_index']
-                rally_point.squad_index = rally_point_data['squad_index']
-                rally_point.player = models.Player.objects.get(id=rally_point_data['player_id'])
-                rally_point.is_established = rally_point_data['is_established']
-                rally_point.establisher_count = rally_point_data['establisher_count']
-                rally_point.location_x = rally_point_data['location'][0]
-                rally_point.location_y = rally_point_data['location'][1]
-                rally_point.location_z = rally_point_data['location'][2]
-                rally_point.created_at = parser.parse(rally_point_data['created_at'])
-                rally_point.destroyed_at = None if rally_point_data['destroyed_at'] is None else parser.parse(rally_point_data['destroyed_at'])
-                rally_point.destroyed_reason = rally_point_data['destroyed_reason']
-                rally_point.spawn_count = rally_point_data['spawn_count']
-                rally_point.round = round
-                rally_point.save()
+            models.VehicleFrag.objects.bulk_create(
+                map(lambda vehicle_frag_data: models.VehicleFrag(
+                    round=round,
+                    time=vehicle_frag_data['time'],
+                    damage_type=damage_types_by_id[vehicle_frag_data['damage_type']],
+                    killer=players_by_id[int(vehicle_frag_data['killer']['id'])],
+                    killer_team_index=vehicle_frag_data['killer']['team'],
+                    killer_location_x=vehicle_frag_data['killer']['location'][0],
+                    killer_location_y=vehicle_frag_data['killer']['location'][1],
+                    killer_location_z=vehicle_frag_data['killer']['location'][2],
+                    killer_pawn_class=pawn_classes_by_id[vehicle_frag_data['killer']['pawn']],
+                    killer_vehicle_class=pawn_classes_by_id[vehicle_frag_data['killer']['vehicle']],
+                    vehicle_class=pawn_classes_by_id[vehicle_frag_data['destroyed_vehicle']['vehicle']],
+                    vehicle_team_index=vehicle_frag_data['destroyed_vehicle']['team'],
+                    vehicle_location_x=vehicle_frag_data['destroyed_vehicle']['location'][0],
+                    vehicle_location_y=vehicle_frag_data['destroyed_vehicle']['location'][1],
+                    vehicle_location_z=vehicle_frag_data['destroyed_vehicle']['location'][2],
+                    distance=np.linalg.norm(np.subtract(vehicle_frag_data['destroyed_vehicle']['location'], vehicle_frag_data['killer']['location'])),
+                ), round_data['vehicle_frags'])
+            )
 
+            # rally points
+            models.RallyPoint.objects.bulk_create(
+                map(lambda rally_point: models.RallyPoint(
+                    team_index=rally_point['team_index'],
+                    squad_index=rally_point['squad_index'],
+                    player=players_by_id[int(rally_point['player_id'])],
+                    is_established=rally_point['is_established'],
+                    establisher_count=rally_point['establisher_count'],
+                    location_x=rally_point['location'][0],
+                    location_y=rally_point['location'][1],
+                    location_z=rally_point['location'][2],
+                    created_at=parse_dt(rally_point['created_at']),
+                    destroyed_at=None if rally_point['destroyed_at'] is None else parse_dt(rally_point['destroyed_at']),
+                    destroyed_reason=rally_point['destroyed_reason'],
+                    spawn_count=rally_point['spawn_count'],
+                    round=round
+                ), round_data['rally_points'])
+            )
+
+            # constructions
             for construction_data in round_data['constructions']:
                 construction = models.Construction()
                 try:
@@ -417,7 +440,7 @@ class LogViewSet(viewsets.ModelViewSet):
                     construction_class = models.ConstructionClass(classname=construction_data['class'])
                     construction_class.save()
                 construction.classname = construction_class
-                construction.player = models.Player.objects.get(id=construction_data['player_id'])
+                construction.player = players_by_id[int(construction_data['player_id'])]
                 construction.team_index = construction_data['team']
                 construction.round_time = construction_data['round_time']
                 construction.location_x = construction_data['location'][0]
@@ -448,6 +471,33 @@ class LogViewSet(viewsets.ModelViewSet):
         json.dump(data, open(log_path, 'w'))
 
         return Response({}, status=status.HTTP_201_CREATED, headers={})
+
+    def get_unique_damage_types(self, data):
+        unique_damage_types = set()
+        for round_data in data['rounds']:
+            for frag_data in round_data['frags']:
+                unique_damage_types.add(frag_data['damage_type'])
+            for frag_data in round_data['vehicle_frags']:
+                unique_damage_types.add(frag_data['damage_type'])
+        return unique_damage_types
+
+    def get_unique_pawn_clases(self, data):
+        unique_pawn_classes = set()
+        for round_data in data['rounds']:
+            for frag_data in round_data['frags']:
+                if frag_data['killer']['pawn'] is not None:
+                    unique_pawn_classes.add(frag_data['killer']['pawn'])
+                if frag_data['killer']['vehicle'] is not None:
+                    unique_pawn_classes.add(frag_data['killer']['vehicle'])
+                if frag_data['victim']['pawn'] is not None:
+                    unique_pawn_classes.add(frag_data['victim']['pawn'])
+            for vehicle_frag_data in round_data['vehicle_frags']:
+                unique_pawn_classes.add(vehicle_frag_data['destroyed_vehicle']['vehicle'])
+                if vehicle_frag_data['killer']['pawn'] is not None:
+                    unique_pawn_classes.add(vehicle_frag_data['killer']['pawn'])
+                if vehicle_frag_data['killer']['vehicle'] is not None:
+                    unique_pawn_classes.add(vehicle_frag_data['killer']['vehicle'])
+        return unique_pawn_classes
 
 
 class RoundFilterSet(django_filters.rest_framework.FilterSet):
@@ -531,7 +581,7 @@ class RoundViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True)
     def player_summary(self, request, pk):
         round = models.Round.objects.get(pk=pk)
-        player_id = request.GET['player_id']
+        player_id = int(request.GET['player_id'])
         player = models.Player.objects.get(pk=player_id)
         frags = models.Frag.objects.filter(round=round, killer=player)
         kills = list(frags.values('damage_type').annotate(total=Count('damage_type')).order_by('total').annotate(longest=Max('distance')))
