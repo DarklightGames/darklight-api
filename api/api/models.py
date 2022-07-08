@@ -54,11 +54,11 @@ class Player(models.Model):
 
 
 class DamageTypeClass(models.Model):
-    id = models.CharField(primary_key=True, max_length=128)
+    classname = models.CharField(max_length=128, unique=True)
 
 
 class Map(models.Model):
-    name = models.CharField(max_length=128, primary_key=True)
+    name = models.CharField(max_length=128, unique=True)
     bounds_ne_x = models.FloatField(null=True)
     bounds_ne_y = models.FloatField(null=True)
     bounds_sw_x = models.FloatField(null=True)

@@ -290,7 +290,7 @@ class LogViewSet(viewsets.ModelViewSet):
         log.version = data['version']
 
         map_data = data['map']
-        log.map = models.Map(map_data['name'])
+        log.map = models.Map.objects.get_or_create(name=map_data['name'])[0]
         log.map.bounds_ne_x = map_data['bounds']['ne'][0]
         log.map.bounds_ne_y = map_data['bounds']['ne'][1]
         log.map.bounds_sw_x = map_data['bounds']['sw'][0]
@@ -349,7 +349,7 @@ class LogViewSet(viewsets.ModelViewSet):
         unique_damage_types = self.get_unique_damage_types(data)
         damage_types_by_id = {None: None}
         for classname in unique_damage_types:
-            damage_types_by_id[classname] = models.DamageTypeClass.objects.get_or_create(id=classname)[0]
+            damage_types_by_id[classname] = models.DamageTypeClass.objects.get_or_create(classname=classname)[0]
 
         # pawn classes
         unique_pawn_classes = self.get_unique_pawn_clases(data)
@@ -366,7 +366,7 @@ class LogViewSet(viewsets.ModelViewSet):
             round.log = log
             round.save()
 
-            # 6.13s the time to beat on 2021-03-06T22_50_23.log
+            # 2.6s the time to beat on 2021-03-06T22_50_23.log
 
             models.Frag.objects.bulk_create(
                 map(lambda frag_data: models.Frag(
@@ -432,32 +432,32 @@ class LogViewSet(viewsets.ModelViewSet):
             )
 
             # constructions
-            for construction_data in round_data['constructions']:
-                construction = models.Construction()
-                try:
-                    construction_class = models.ConstructionClass.objects.get(classname=construction_data['class'])
-                except ObjectDoesNotExist:
-                    construction_class = models.ConstructionClass(classname=construction_data['class'])
-                    construction_class.save()
-                construction.classname = construction_class
-                construction.player = players_by_id[int(construction_data['player_id'])]
-                construction.team_index = construction_data['team']
-                construction.round_time = construction_data['round_time']
-                construction.location_x = construction_data['location'][0]
-                construction.location_y = construction_data['location'][1]
-                construction.location_z = construction_data['location'][2]
-                construction.round = round
-                construction.save()
+            unique_construction_classes = self.get_unique_construction_classes(data)
+            construction_classes_by_class = {None: None}
+            for construction_class in unique_construction_classes:
+                construction_classes_by_class[construction_class] = models.ConstructionClass.objects.get_or_create(classname=construction_class)[0]
+
+            models.Construction.objects.bulk_create(
+                map(lambda construction_data: models.Construction(
+                    classname=construction_classes_by_class[construction_data['class']],
+                    player=players_by_id[int(construction_data['player_id'])],
+                    team_index=construction_data['team'],
+                    round_time=construction_data['round_time'],
+                    location_x=construction_data['location'][0],
+                    location_y=construction_data['location'][1],
+                    location_z=construction_data['location'][2],
+                    round=round
+                ), round_data['constructions'])
+            )
 
             if 'events' in round_data:
-                events = round_data['events']
-
-                for event_data in events:
-                    event = models.Event()
-                    event.type = event_data['type']
-                    event.data = json.dumps(event_data['data'])
-                    event.round = round
-                    event.save()
+                models.Event.objects.bulk_create(
+                    map(lambda event_data: models.Event(
+                        type=event_data['type'],
+                        data=json.dumps(event_data['data']),
+                        round=round
+                    ), round_data['events'])
+                )
 
         log.save()
 
@@ -498,6 +498,13 @@ class LogViewSet(viewsets.ModelViewSet):
                 if vehicle_frag_data['killer']['vehicle'] is not None:
                     unique_pawn_classes.add(vehicle_frag_data['killer']['vehicle'])
         return unique_pawn_classes
+
+    def get_unique_construction_classes(self, data):
+        unique_construction_classes = set()
+        for round_data in data['rounds']:
+            for construction_data in round_data['constructions']:
+                unique_construction_classes.add(construction_data['class'])
+        return unique_construction_classes
 
 
 class RoundFilterSet(django_filters.rest_framework.FilterSet):
