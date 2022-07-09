@@ -17,7 +17,7 @@ class SessionSerializer(serializers.ModelSerializer):
 
 
 class PlayerSerializer(serializers.ModelSerializer):
-    id = serializers.CharField()
+    id = serializers.IntegerField()
     names = PlayerNameSerializer(read_only=True, many=True)
     kills = serializers.IntegerField()
     deaths = serializers.IntegerField()
@@ -34,7 +34,7 @@ class PlayerSerializer(serializers.ModelSerializer):
 class DamageTypeClassSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.DamageTypeClass
-        fields = ['id']
+        fields = ['id', 'classname']
 
 
 class LogSerializer(serializers.ModelSerializer):
@@ -107,7 +107,7 @@ class VehicleFragSerializer(serializers.ModelSerializer):
 class MapSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Map
-        fields = ['name', 'bounds', 'offset']
+        fields = ['id', 'name', 'bounds', 'offset']
 
 
 class JSONSerializerField(serializers.Field):

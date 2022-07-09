@@ -6,7 +6,7 @@ import isodate
 
 
 class PlayerName(models.Model):
-    name = models.CharField(max_length=128)
+    name = models.CharField(max_length=128, db_index=True)
 
     def __str__(self):
         return self.name
@@ -229,7 +229,7 @@ class RallyPoint(models.Model):
     establisher_count = models.IntegerField()
     created_at = models.DateTimeField()
     destroyed_at = models.DateTimeField(null=True)
-    destroyed_reason = models.CharField(max_length=32, null=True, choices=DESTROYED_REASON_CHOICES)
+    destroyed_reason = models.CharField(max_length=16, null=True, choices=DESTROYED_REASON_CHOICES)
     round = models.ForeignKey(Round, on_delete=models.CASCADE)
 
     @property

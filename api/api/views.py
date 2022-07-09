@@ -1,6 +1,7 @@
 import time
 
 import pytz
+import portalocker
 from rest_framework import viewsets, status
 from rest_framework.filters import OrderingFilter, SearchFilter
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
@@ -240,7 +241,6 @@ class LogViewSet(viewsets.ModelViewSet):
     queryset = models.Log.objects.all()
     serializer_class = serializers.LogSerializer
 
-    @transaction.atomic
     def create(self, request, *args, **kwargs):
         secret = request.data['secret']
         if secret != os.environ['API_SECRET']:
@@ -275,195 +275,205 @@ class LogViewSet(viewsets.ModelViewSet):
             data = data.replace('\\', '\\\\')
             data = json.loads(data)
 
+        # aggregate lists from the data (do this before we do DB-heavy stuff)
+        unique_damage_types = self.get_unique_damage_types(data)
+        unique_pawn_classes = self.get_unique_pawn_clases(data)
+        unique_construction_classes = self.get_unique_construction_classes(data)
+
+        # ensure that this log hasn't been evaluated before
         try:
             models.Log.objects.get(crc=crc)
             return Response(None, status=status.HTTP_409_CONFLICT, headers={})
         except ObjectDoesNotExist:
             pass
 
+        # version gate
         if semver.compare(data['version'][1:], '8.3.0') < 0:
             data = {'success': False, 'error': 'Log file version {} is unsupported.'.format(data['version'][1:])}
             return JsonResponse(data, status=status.HTTP_406_NOT_ACCEPTABLE)
 
-        log = models.Log()
-        log.crc = crc
-        log.version = data['version']
+        # use file locking scheme to avoid database deadlocks (find a better solution in future!)
 
-        map_data = data['map']
-        log.map = models.Map.objects.get_or_create(name=map_data['name'])[0]
-        log.map.bounds_ne_x = map_data['bounds']['ne'][0]
-        log.map.bounds_ne_y = map_data['bounds']['ne'][1]
-        log.map.bounds_sw_x = map_data['bounds']['sw'][0]
-        log.map.bounds_sw_y = map_data['bounds']['sw'][1]
-        log.map.offset = map_data['offset']
-        log.map.save()
+        with portalocker.Lock('./db.lock', timeout=30, fail_when_locked=False) as lock:
+            with transaction.atomic():
+                log = models.Log()
+                log.crc = crc
+                log.version = data['version']
 
-        log.save()
+                map_data = data['map']
+                log.map = models.Map.objects.get_or_create(name=map_data['name'])[0]
+                log.map.bounds_ne_x = map_data['bounds']['ne'][0]
+                log.map.bounds_ne_y = map_data['bounds']['ne'][1]
+                log.map.bounds_sw_x = map_data['bounds']['sw'][0]
+                log.map.bounds_sw_y = map_data['bounds']['sw'][1]
+                log.map.offset = map_data['offset']
+                log.map.save()
+                log.save()
 
-        players_by_id = dict()
+                players_by_id = dict()
 
-        for player_data in data['players']:
-            player_id = int(player_data['id'])
-            try:
-                player = models.Player.objects.get(id=player_id)
-            except ObjectDoesNotExist:
-                player = models.Player(id=player_id)
-                player.save()
-            for session_data in player_data['sessions']:
-                session = models.Session()
-                session.ip = session_data['ip']
-                session.started_at = parse_dt(session_data['started_at'])
-                if semver.compare(data['version'][1:], '9.0.9') <= 0:
-                    if session_data['ended_at'] == '':
-                        # There was a bug with <=v9.0.9 where player timeouts would not terminate sessions, resulting in
-                        # ended_at being an empty string. This fix effectively terminates the session immediately.
-                        session.ended_at = parse_dt(session_data['started_at'])
-                    else:
-                        session.ended_at = parse_dt(session_data['ended_at'])
-                else:
-                    session.ended_at = parse_dt(session_data['ended_at'])
-                session.save()
-                player.sessions.add(session)
-            for name in player_data['names']:
-                if name not in map(lambda x: x.name, player.names.all()):
-                    player_name = models.PlayerName(name=name)
-                    player_name.save()
-                    player.names.add(player_name)
-            player.save()
-            log.players.add(player)
-            players_by_id[player_id] = player
+                for player_data in data['players']:
+                    player_id = int(player_data['id'])
+                    try:
+                        player = models.Player.objects.get(id=player_id)
+                    except ObjectDoesNotExist:
+                        player = models.Player(id=player_id)
+                        player.save()
+                    for session_data in player_data['sessions']:
+                        session = models.Session()
+                        session.ip = session_data['ip']
+                        session.started_at = parse_dt(session_data['started_at'])
+                        if semver.compare(data['version'][1:], '9.0.9') <= 0:
+                            if session_data['ended_at'] == '':
+                                # There was a bug with <=v9.0.9 where player timeouts would not terminate sessions,
+                                # resulting in ended_at being an empty string. This fix effectively terminates the session
+                                # immediately.
+                                session.ended_at = parse_dt(session_data['started_at'])
+                            else:
+                                session.ended_at = parse_dt(session_data['ended_at'])
+                        else:
+                            session.ended_at = parse_dt(session_data['ended_at'])
+                        session.save()
+                        player.sessions.add(session)
+                    for name in player_data['names']:
+                        if name not in map(lambda x: x.name, player.names.all()):
+                            player_name = models.PlayerName(name=name)
+                            player_name.save()
+                            player.names.add(player_name)
+                    log.players.add(player)
+                    players_by_id[player_id] = player
+                    player.save()
 
-        # text messages
-        models.TextMessage.objects.bulk_create(
-            map(lambda text_message: models.TextMessage(
-                log=log,
-                type=text_message['type'],
-                message=text_message['message'],
-                sender=players_by_id[int(text_message['sender'])],
-                sent_at=parse_dt(text_message['sent_at']),
-                team_index=text_message['team_index'],
-                squad_index=text_message['squad_index']
-            ), data['text_messages']))
-
-        # damage types
-        unique_damage_types = self.get_unique_damage_types(data)
-        damage_types_by_id = {None: None}
-        for classname in unique_damage_types:
-            damage_types_by_id[classname] = models.DamageTypeClass.objects.get_or_create(classname=classname)[0]
-
-        # pawn classes
-        unique_pawn_classes = self.get_unique_pawn_clases(data)
-        pawn_classes_by_id = {None: None}
-        for classname in unique_pawn_classes:
-            pawn_classes_by_id[classname] = models.PawnClass.objects.get_or_create(classname=classname)[0]
-
-        # rounds
-        for round_data in data['rounds']:
-            round = models.Round()
-            round.started_at = parse_dt(round_data['started_at'])
-            round.ended_at = None if round_data['ended_at'] is None else parse_dt(round_data['ended_at'])
-            round.winner = round_data['winner']
-            round.log = log
-            round.save()
-
-            # 2.6s the time to beat on 2021-03-06T22_50_23.log
-
-            models.Frag.objects.bulk_create(
-                map(lambda frag_data: models.Frag(
-                    damage_type=damage_types_by_id[frag_data['damage_type']],
-                    hit_index=frag_data['hit_index'],
-                    time=frag_data['time'],
-                    killer=players_by_id[int(frag_data['killer']['id'])],
-                    killer_team_index=frag_data['killer']['team'],
-                    killer_location_x=frag_data['killer']['location'][0],
-                    killer_location_y=frag_data['killer']['location'][1],
-                    killer_location_z=frag_data['killer']['location'][2],
-                    killer_pawn_class=pawn_classes_by_id[frag_data['killer']['pawn']],
-                    killer_vehicle=pawn_classes_by_id[frag_data['killer']['vehicle']],
-                    victim=players_by_id[int(frag_data['victim']['id'])],
-                    victim_team_index=frag_data['victim']['team'],
-                    victim_location_x=frag_data['victim']['location'][0],
-                    victim_location_y=frag_data['victim']['location'][1],
-                    victim_location_z=frag_data['victim']['location'][2],
-                    victim_pawn_class=pawn_classes_by_id[frag_data['victim']['pawn']],
-                    distance=np.linalg.norm(np.subtract(frag_data['victim']['location'], frag_data['killer']['location'])),
-                    round=round,
-                ), round_data['frags'])
-            )
-
-            models.VehicleFrag.objects.bulk_create(
-                map(lambda vehicle_frag_data: models.VehicleFrag(
-                    round=round,
-                    time=vehicle_frag_data['time'],
-                    damage_type=damage_types_by_id[vehicle_frag_data['damage_type']],
-                    killer=players_by_id[int(vehicle_frag_data['killer']['id'])],
-                    killer_team_index=vehicle_frag_data['killer']['team'],
-                    killer_location_x=vehicle_frag_data['killer']['location'][0],
-                    killer_location_y=vehicle_frag_data['killer']['location'][1],
-                    killer_location_z=vehicle_frag_data['killer']['location'][2],
-                    killer_pawn_class=pawn_classes_by_id[vehicle_frag_data['killer']['pawn']],
-                    killer_vehicle_class=pawn_classes_by_id[vehicle_frag_data['killer']['vehicle']],
-                    vehicle_class=pawn_classes_by_id[vehicle_frag_data['destroyed_vehicle']['vehicle']],
-                    vehicle_team_index=vehicle_frag_data['destroyed_vehicle']['team'],
-                    vehicle_location_x=vehicle_frag_data['destroyed_vehicle']['location'][0],
-                    vehicle_location_y=vehicle_frag_data['destroyed_vehicle']['location'][1],
-                    vehicle_location_z=vehicle_frag_data['destroyed_vehicle']['location'][2],
-                    distance=np.linalg.norm(np.subtract(vehicle_frag_data['destroyed_vehicle']['location'], vehicle_frag_data['killer']['location'])),
-                ), round_data['vehicle_frags'])
-            )
-
-            # rally points
-            models.RallyPoint.objects.bulk_create(
-                map(lambda rally_point: models.RallyPoint(
-                    team_index=rally_point['team_index'],
-                    squad_index=rally_point['squad_index'],
-                    player=players_by_id[int(rally_point['player_id'])],
-                    is_established=rally_point['is_established'],
-                    establisher_count=rally_point['establisher_count'],
-                    location_x=rally_point['location'][0],
-                    location_y=rally_point['location'][1],
-                    location_z=rally_point['location'][2],
-                    created_at=parse_dt(rally_point['created_at']),
-                    destroyed_at=None if rally_point['destroyed_at'] is None else parse_dt(rally_point['destroyed_at']),
-                    destroyed_reason=rally_point['destroyed_reason'],
-                    spawn_count=rally_point['spawn_count'],
-                    round=round
-                ), round_data['rally_points'])
-            )
-
-            # constructions
-            unique_construction_classes = self.get_unique_construction_classes(data)
-            construction_classes_by_class = {None: None}
-            for construction_class in unique_construction_classes:
-                construction_classes_by_class[construction_class] = models.ConstructionClass.objects.get_or_create(classname=construction_class)[0]
-
-            models.Construction.objects.bulk_create(
-                map(lambda construction_data: models.Construction(
-                    classname=construction_classes_by_class[construction_data['class']],
-                    player=players_by_id[int(construction_data['player_id'])],
-                    team_index=construction_data['team'],
-                    round_time=construction_data['round_time'],
-                    location_x=construction_data['location'][0],
-                    location_y=construction_data['location'][1],
-                    location_z=construction_data['location'][2],
-                    round=round
-                ), round_data['constructions'])
-            )
-
-            if 'events' in round_data:
-                models.Event.objects.bulk_create(
-                    map(lambda event_data: models.Event(
-                        type=event_data['type'],
-                        data=json.dumps(event_data['data']),
-                        round=round
-                    ), round_data['events'])
+                # text messages
+                admin_player_id = "20b300195d48c2ccc2651885cfea1a2f"
+                models.TextMessage.objects.bulk_create(
+                    map(lambda text_message: models.TextMessage(
+                        log=log,
+                        type=text_message['type'],
+                        message=text_message['message'][:128],
+                        sender=players_by_id[int(text_message['sender'])],
+                        sent_at=parse_dt(text_message['sent_at']),
+                        team_index=text_message['team_index'],
+                        squad_index=text_message['squad_index']
+                    ), filter(lambda x: x['sender'] != admin_player_id, data['text_messages']))
                 )
 
-        log.save()
+                # damage types
+                damage_types_by_id = {None: None}
+                for classname in unique_damage_types:
+                    damage_types_by_id[classname] = models.DamageTypeClass.objects.get_or_create(classname=classname)[0]
 
-        # Recalculate all aggregate stats for players involved in the game.
-        for player in log.players.all():
-            player.calculate_stats()
+                # pawn classes
+                pawn_classes_by_id = {None: None}
+                for classname in unique_pawn_classes:
+                    pawn_classes_by_id[classname] = models.PawnClass.objects.get_or_create(classname=classname)[0]
+
+                # rounds
+                for round_data in data['rounds']:
+                    round = models.Round()
+                    round.started_at = parse_dt(round_data['started_at'])
+                    round.ended_at = None if round_data['ended_at'] is None else parse_dt(round_data['ended_at'])
+                    round.winner = round_data['winner']
+                    round.log = log
+                    round.save()
+
+                    # 2.6s the time to beat on 2021-03-06T22_50_23.log
+
+                    models.Frag.objects.bulk_create(
+                        map(lambda frag_data: models.Frag(
+                            damage_type=damage_types_by_id[frag_data['damage_type']],
+                            hit_index=frag_data['hit_index'],
+                            time=frag_data['time'],
+                            killer=players_by_id[int(frag_data['killer']['id'])],
+                            killer_team_index=frag_data['killer']['team'],
+                            killer_location_x=frag_data['killer']['location'][0],
+                            killer_location_y=frag_data['killer']['location'][1],
+                            killer_location_z=frag_data['killer']['location'][2],
+                            killer_pawn_class=pawn_classes_by_id[frag_data['killer']['pawn']],
+                            killer_vehicle=pawn_classes_by_id[frag_data['killer']['vehicle']],
+                            victim=players_by_id[int(frag_data['victim']['id'])],
+                            victim_team_index=frag_data['victim']['team'],
+                            victim_location_x=frag_data['victim']['location'][0],
+                            victim_location_y=frag_data['victim']['location'][1],
+                            victim_location_z=frag_data['victim']['location'][2],
+                            victim_pawn_class=pawn_classes_by_id[frag_data['victim']['pawn']],
+                            distance=np.linalg.norm(np.subtract(frag_data['victim']['location'], frag_data['killer']['location'])),
+                            round=round,
+                        ), round_data['frags'])
+                    )
+
+                    models.VehicleFrag.objects.bulk_create(
+                        map(lambda vehicle_frag_data: models.VehicleFrag(
+                            round=round,
+                            time=vehicle_frag_data['time'],
+                            damage_type=damage_types_by_id[vehicle_frag_data['damage_type']],
+                            killer=players_by_id[int(vehicle_frag_data['killer']['id'])],
+                            killer_team_index=vehicle_frag_data['killer']['team'],
+                            killer_location_x=vehicle_frag_data['killer']['location'][0],
+                            killer_location_y=vehicle_frag_data['killer']['location'][1],
+                            killer_location_z=vehicle_frag_data['killer']['location'][2],
+                            killer_pawn_class=pawn_classes_by_id[vehicle_frag_data['killer']['pawn']],
+                            killer_vehicle_class=pawn_classes_by_id[vehicle_frag_data['killer']['vehicle']],
+                            vehicle_class=pawn_classes_by_id[vehicle_frag_data['destroyed_vehicle']['vehicle']],
+                            vehicle_team_index=vehicle_frag_data['destroyed_vehicle']['team'],
+                            vehicle_location_x=vehicle_frag_data['destroyed_vehicle']['location'][0],
+                            vehicle_location_y=vehicle_frag_data['destroyed_vehicle']['location'][1],
+                            vehicle_location_z=vehicle_frag_data['destroyed_vehicle']['location'][2],
+                            distance=np.linalg.norm(np.subtract(vehicle_frag_data['destroyed_vehicle']['location'], vehicle_frag_data['killer']['location'])),
+                        ), round_data['vehicle_frags'])
+                    )
+
+                    # rally points
+                    models.RallyPoint.objects.bulk_create(
+                        map(lambda rally_point: models.RallyPoint(
+                            team_index=rally_point['team_index'],
+                            squad_index=rally_point['squad_index'],
+                            player=players_by_id[int(rally_point['player_id'])],
+                            is_established=rally_point['is_established'],
+                            establisher_count=rally_point['establisher_count'],
+                            location_x=rally_point['location'][0],
+                            location_y=rally_point['location'][1],
+                            location_z=rally_point['location'][2],
+                            created_at=parse_dt(rally_point['created_at']),
+                            destroyed_at=None if rally_point['destroyed_at'] is None else parse_dt(rally_point['destroyed_at']),
+                            destroyed_reason=rally_point['destroyed_reason'],
+                            spawn_count=rally_point['spawn_count'],
+                            round=round
+                        ), round_data['rally_points'])
+                    )
+
+                    # constructions
+                    construction_classes_by_class = {None: None}
+                    for construction_class in unique_construction_classes:
+                        construction_classes_by_class[construction_class] = models.ConstructionClass.objects.get_or_create(classname=construction_class)[0]
+
+                    models.Construction.objects.bulk_create(
+                        map(lambda construction_data: models.Construction(
+                            classname=construction_classes_by_class[construction_data['class']],
+                            player=players_by_id[int(construction_data['player_id'])],
+                            team_index=construction_data['team'],
+                            round_time=construction_data['round_time'],
+                            location_x=construction_data['location'][0],
+                            location_y=construction_data['location'][1],
+                            location_z=construction_data['location'][2],
+                            round=round
+                        ), round_data['constructions'])
+                    )
+
+                    if 'events' in round_data:
+                        models.Event.objects.bulk_create(
+                            map(lambda event_data: models.Event(
+                                type=event_data['type'],
+                                data=json.dumps(event_data['data']),
+                                round=round
+                            ), round_data['events'])
+                        )
+
+                log.save()
+
+                # Recalculate all aggregate stats for players involved in the game.
+                for player in log.players.all():
+                    player.calculate_stats()
 
         # TODO: store the log on disk, gzip'd probably
         log_path = os.path.join('storage', 'logs', str(crc) + '.log')
