@@ -12,7 +12,7 @@ class PatronAdmin(admin.ModelAdmin):
 
 
 class PlayerAdmin(admin.ModelAdmin):
-    search_fields = ('id', 'names__name')
+    search_fields = ('id', 'names__name', 'ips')
     exclude = ('names', 'sessions')
     list_display = ['id', 'name', 'playtime', 'ips']
     list_filter = []
