@@ -1,0 +1,7 @@
+*.venv
+*.sqlite3
+*.pyc
+*.pyo
+.git/
+__pycache__
+Dockerfile

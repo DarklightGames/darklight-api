@@ -1,0 +1,83 @@
+services:
+  django:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000 && python manage.py qcluster
+    volumes:
+      - .:/home/app/src
+      - static_volume:/home/app/src/static
+      - storage_volume:/home/app/src/storage
+    expose: 
+      - 8000
+    ports:
+      - "8000:8000"
+    environment:
+      DJANGO_ALLOWED_HOSTS: ${API_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}
+      DJANGO_DEBUG: 1
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    depends_on:
+      - postgres
+    secrets:
+      - api_django_secret_key
+      - api_secret
+      - postgres_db
+      - postgres_user
+      - postgres_password
+    networks:
+      - backend
+
+  postgres:
+    image: postgres:16.6
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    expose:
+      - 5432
+    environment:
+      POSTGRES_DB_FILE: /run/secrets/postgres_db
+      POSTGRES_USER_FILE: /run/secrets/postgres_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_db
+      - postgres_user
+      - postgres_password
+    networks:
+      - backend
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-pgadmin4@pgadmin.org}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+       - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    depends_on:
+      - postgres
+    networks:
+      - backend
+    restart: unless-stopped
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  static_volume:
+  storage_volume:
+  postgres_data:
+  pgadmin_data:
+
+secrets:
+  api_django_secret_key:
+    file: secrets/django_secret_key
+  api_secret:
+    file: secrets/api_secret
+  postgres_db:
+    file: secrets/postgres_db
+  postgres_user:
+    file: secrets/postgres_user
+  postgres_password:
+    file: secrets/postgres_password
